@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投資戰情監控中心 - 終極穩定版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 16px; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border-top: 6px solid #475569; }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        .card.purple { border-top-color: #a855f7; }
+        .symbol { font-size: 0.85em; color: #94a3b8; font-weight: 700; }
+        .name { font-size: 1.5em; font-weight: bold; margin: 8px 0; color: #fff; }
+        .price { font-size: 2.8em; font-weight: 800; margin: 12px 0; color: #f43f5e; }
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 14px; border-radius: 12px; margin: 18px 0; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; margin-bottom: 5px; }
+        .kd-item strong { font-size: 1.3em; color: #fff; }
+        .signal { padding: 14px; border-radius: 10px; font-weight: bold; text-align: center; font-size: 1.1em; }
+        .buy { background: rgba(6, 78, 59, 0.8); color: #6ee7b7; border: 1px solid #065f46; } 
+        .sell { background: rgba(127, 29, 29, 0.8); color: #fca5a5; border: 1px solid #991b1b; }
+        .hold { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+        #update-status { font-size: 0.95em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        .error-msg { background: #450a0a; color: #fecaca; padding: 25px; border-radius: 12px; grid-column: 1/-1; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>投資戰情監控中心</h1>
+    <div id="update-status">正在同步雲端數據...</div>
+</div>
+
+<div class="grid" id="stock-grid">
+    <div id="loading-hint" style="grid-column: 1/-1; text-align: center; padding: 50px; color: #64748b;">正在解析 CSV 內容，請稍候...</div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            if (!response.ok) throw new Error('無法讀取 CSV');
+            
+            let rawData = await response.text();
+            rawData = rawData.replace(/^\uFEFF/, "").trim(); 
+            
+            // 解析 CSV 列與欄
+            const rows = rawData.split(/\r?\n/).map(row => {
+                // 處理可能包含逗號的儲存格 (正則表達式)
+                const matched = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                return matched ? matched.map(v => v.replace(/"/g, '').trim()) : row.split(',');
+            });
+
+            if (rows.length < 2) throw new Error('試算表內容為空或格式錯誤');
+
+            // --- 自動尋找標題對應的索引 ---
+            const header = rows[0];
+            const findCol = (keywords) => header.findIndex(h => keywords.some(k => h.includes(k)));
+
+            const pIdx = findCol(["價格", "現價", "當值"]);
+            const kIdx = findCol(["K值", "K"]);
+            const dIdx = findCol(["D值", "D"]);
+
+            // 設定預設索引 (如果找不到標題)
+            const finalP = pIdx !== -1 ? pIdx : 2;  // C欄
+            const finalK = kIdx !== -1 ? kIdx : 12; // M欄
+            const finalD = dIdx !== -1 ? dIdx : 13; // N欄
+
+            let htmlContent = '';
+
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i];
+                if (cols.length < 3 || !cols[0]) continue;
+
+                const id = cols[0];      
+                const name = cols[1];    
+                const price = cols[finalP] || "---";
+                
+                // 清理數值：移除 % 和逗號，確保能轉成數字
+                const cleanValue = (val) => {
+                    if (!val) return 0;
+                    const num = parseFloat(val.toString().replace(/[%,]/g, ''));
+                    return isNaN(num) ? 0 : num;
+                };
+
+                const kVal = cleanValue(cols[finalK]);
+                const dVal = cleanValue(cols[finalD]);
+
+                // 訊號與配色邏輯
+                let sigClass = 'hold'; let sigTxt = '⚪ 觀望續抱';
+                if (kVal > 0 && kVal < 20) { sigClass = 'buy'; sigTxt = '✅ 分批買入區'; }
+                else if (kVal > 80) { sigClass = 'sell'; sigTxt = '⚠️ 高檔風險區'; }
+
+                let theme = 'blue';
+                if (id.includes('2330')) theme = 'red';
+                else if (id.includes('00878') || id.includes('00929')) theme = 'green';
+                else if (id.includes('009816')) theme = 'purple';
+
+                htmlContent += `
+                    <div class="card ${theme}">
+                        <div class="symbol">TPE:${id}</div>
+                        <div class="name">${name}</div>
+                        <div class="price">${price}</div>
+                        <div class="kd-container">
+                            <div class="kd-item"><span>日 K 值</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>日 D 值</span><strong>${dVal.toFixed(2)}</strong></div>
+                        </div>
+                        <div class="signal ${sigClass}">${sigTxt}</div>
+                    </div>`;
+            }
+            
+            grid.innerHTML = htmlContent;
+            status.innerText = '✅ 更新成功：' + new Date().toLocaleTimeString();
+            status.style.color = '#38bdf8';
+
+        } catch (error) {
+            console.error(error);
+            status.innerText = '❌ 同步失敗';
+            status.style.color = '#ef4444';
+            grid.innerHTML = `<div class="error-msg">🚨 數據讀取出錯：${error.message}<br>請確認試算表第一列標題包含「K值」與「D值」。</div>`;
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
