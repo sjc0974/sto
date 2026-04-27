@@ -1,0 +1,25 @@
+// ... 在 updateDashboard 函數內找到解析 rows 的地方，替換成這段 ...
+
+const rows = rawData.split(/\r?\n/).map(row => row.split(',').map(c => c.replace(/"/g, '').trim()));
+const header = rows[0]; // 取得第一行標題
+
+// 自動找尋欄位 index
+const idxPrice = header.indexOf("當前價格") !== -1 ? header.indexOf("當前價格") : 2;
+const idxK = header.indexOf("K值") !== -1 ? header.indexOf("K值") : 12; // 找不到就用預設 M 欄
+const idxD = header.indexOf("D值") !== -1 ? header.indexOf("D值") : 13; // 找不到就用預設 N 欄
+
+grid.innerHTML = ''; 
+
+for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    if (cols.length < 5 || !cols[0]) continue;
+
+    const id = cols[0];      
+    const name = cols[1];    
+    const price = cols[idxPrice];   
+    // 清除可能存在的 % 符號並轉換數字
+    const kVal = parseFloat(cols[idxK].replace('%', '')) || 0; 
+    const dVal = parseFloat(cols[idxD].replace('%', '')) || 0; 
+
+    // ... 後面判斷訊號與繪製卡片的代碼維持不變 ...
+}
