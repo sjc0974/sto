@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投資戰情監控中心 - 最終修正版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 16px; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border-top: 6px solid #475569; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        .card.purple { border-top-color: #a855f7; }
+        .symbol { font-size: 0.85em; color: #94a3b8; font-weight: 700; }
+        .name { font-size: 1.5em; font-weight: bold; margin: 8px 0; color: #fff; }
+        .price { font-size: 2.8em; font-weight: 800; margin: 12px 0; color: #f43f5e; }
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 14px; border-radius: 12px; margin: 18px 0; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; margin-bottom: 5px; }
+        .kd-item strong { font-size: 1.3em; color: #fff; }
+        .signal { padding: 14px; border-radius: 10px; font-weight: bold; text-align: center; }
+        .buy { background: rgba(6, 78, 59, 0.8); color: #6ee7b7; border: 1px solid #065f46; } 
+        .sell { background: rgba(127, 29, 29, 0.8); color: #fca5a5; border: 1px solid #991b1b; }
+        .hold { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+        #update-status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        .error-msg { background: #450a0a; color: #fecaca; padding: 25px; border-radius: 12px; grid-column: 1/-1; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>投資戰情監控中心</h1>
+    <div id="update-status">連線中...</div>
+</div>
+
+<div class="grid" id="stock-grid">
+    <div style="grid-column: 1/-1; text-align: center; padding: 50px;">資料解析中...</div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            if (!response.ok) throw new Error('HTTP 錯誤: ' + response.status);
+            
+            let rawData = await response.text();
+            rawData = rawData.replace(/^\uFEFF/, "").trim(); 
+            
+            // 更精準的 CSV 解析（處理逗號與引號）
+            const rows = rawData.split(/\r?\n/).map(row => {
+                const matched = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                return matched ? matched.map(v => v.replace(/"/g, '').trim()) : row.split(',');
+            });
+
+            if (rows.length < 2) throw new Error('試算表內容不足');
+
+            // --- 自動欄位偵測 ---
+            const header = rows[0];
+            const findCol = (names) => header.findIndex(h => names.some(n => h.includes(n)));
+
+            const pIdx = findCol(["價格", "現價", "當前"]);
+            const kIdx = findCol(["K值", "K"]);
+            const dIdx = findCol(["D值", "D"]);
+
+            // 備用索引 (如果標題沒對上，強制使用 M=12, N=13)
+            const finalP = pIdx !== -1 ? pIdx : 2;
+            const finalK = kIdx !== -1 ? kIdx : 12;
+            const finalD = dIdx !== -1 ? dIdx : 13;
+
+            grid.innerHTML = ''; 
+
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i];
+                if (cols.length < 3 || !cols[0]) continue;
+
+                const id = cols[0];      
+                const name = cols[1];    
+                const price = cols[finalP] || "0";
+                
+                // 數值清理：移除百分比與逗號，確保 parseFloat 成功
+                const clean = (val) => parseFloat(val.toString().replace(/[%,]/g, '')) || 0;
+                const kVal = clean(cols[finalK]);
+                const dVal = clean(cols[finalD]);
+
+                let style = 'hold'; let txt = '⚪ 觀望續抱';
+                if (kVal > 0 && kVal < 20) { style = 'buy'; txt = '✅ 分批買入區'; }
+                else if (kVal > 80) { style = 'sell'; txt = '⚠️ 高檔風險區'; }
+
+                let theme = 'blue';
+                if (id.includes('2330')) theme = 'red';
+                else if (id.includes('00878') || id.includes('00929')) theme = 'green';
+                else if (id.includes('009816')) theme = 'purple';
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        <div class="symbol">TPE:${id}</div>
+                        <div class="name">${name}</div>
+                        <div class="price">${price}</div>
+                        <div class="kd-container">
+                            <div class="kd-item"><span>日 K 值</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>日 D 值</span><strong>${dVal.toFixed(2)}</strong></div>
+                        </div>
+                        <div class="
