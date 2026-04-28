@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線高勝率監控中心</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 16px; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border-top: 6px solid #475569; position: relative; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        .card.purple { border-top-color: #a855f7; }
+        .win-badge { position: absolute; top: -10px; right: 10px; background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 900; box-shadow: 0 4px 10px rgba(251, 191, 36, 0.4); }
+        .symbol { font-size: 0.85em; color: #94a3b8; font-weight: 700; }
+        .name { font-size: 1.5em; font-weight: bold; margin: 8px 0; color: #fff; }
+        .price { font-size: 2.8em; font-weight: 800; margin: 12px 0; color: #f43f5e; }
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 14px; border-radius: 12px; margin: 18px 0; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; margin-bottom: 5px; }
+        .kd-item strong { font-size: 1.3em; color: #fff; }
+        .signal { padding: 14px; border-radius: 10px; font-weight: bold; text-align: center; font-size: 1.1em; }
+        .buy { background: rgba(6, 78, 59, 0.8); color: #6ee7b7; border: 1px solid #065f46; } 
+        .sell { background: rgba(127, 29, 29, 0.8); color: #fca5a5; border: 1px solid #991b1b; }
+        .hold { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+        .filter-info { font-size: 0.75em; color: #94a3b8; margin-top: 10px; text-align: center; border-top: 1px solid #334155; padding-top: 8px; }
+        #update-status { font-size: 0.95em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 短線戰情監控系統</h1>
+    <div id="update-status">正在連線至雲端數據...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            let rawData = await response.text();
+            rawData = rawData.replace(/^\uFEFF/, "").trim(); 
+            
+            const rows = rawData.split(/\r?\n/).map(row => {
+                const matched = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                return matched ? matched.map(v => v.replace(/"/g, '').trim()) : row.split(',');
+            });
+
+            const header = rows[0];
+            const findCol = (keys) => header.findIndex(h => keys.some(k => h.includes(k)));
+
+            // 自動定位欄位 (根據您的截圖)
+            const pIdx = findCol(["價格", "現價", "當前"]);
+            const kIdx = findCol(["K值", "K"]);
+            const dIdx = findCol(["D值", "D"]);
+            const bbIdx = findCol(["布林下軌", "J"]); 
+            const volIdx = findCol(["成交量萎縮", "L"]);
+
+            grid.innerHTML = '';
+
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i];
+                if (cols.length < 3 || !cols[0]) continue;
+
+                const id = cols[0];      
+                const name = cols[1];    
+                const price = parseFloat(cols[pIdx || 2].replace(/,/g, '')) || 0;
+                const kVal = parseFloat(cols[kIdx || 6]) || 0;
+                const dVal = parseFloat(cols[dIdx || 7]) || 0;
+                
+                // 獲取濾網數值
+                const bbLower = parseFloat(cols[bbIdx !== -1 ? bbIdx : 9]) || 0;
+                const isVolDry = (cols[volIdx !== -1 ? volIdx : 11] || "").toUpperCase() === "TRUE";
+
+                // 高勝率邏輯：KD < 20 且 (低於布林下軌 OR 成交量萎縮)
+                let isHighWin = (kVal < 20 && (price <= bbLower || isVolDry));
+
+                let sigClass = 'hold'; let sigTxt = '⚪ 觀望續抱';
+                if (kVal < 20) { sigClass = 'buy'; sigTxt = '✅ 超跌買入區'; }
+                else if (kVal > 80) { sigClass = 'sell'; sigTxt = '⚠️ 高檔風險區'; }
+
+                let theme = 'blue';
+                if (id.includes('2330')) theme = 'red';
+                else if (id.includes('00878') || id.includes('00929')) theme = 'green';
+                else if (id.includes('009816')) theme = 'purple';
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        ${isHighWin ? `<div class="win-badge">🔥 強力反彈訊號</div>` : ''}
+                        <div class="symbol">TPE:${id}</div>
+                        <div class="name">${name}</div>
+                        <div class="price">${price.toLocaleString()}</div>
+                        <div class="kd-container">
+                            <div class="kd-item"><span>日 K 值</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>日 D 值</span><strong>${dVal.toFixed(2)}</strong></div>
+                        </div>
+                        <div class="signal ${sigClass}">${sigTxt}</div>
+                        <div class="filter-info">
+                            布林支撐: ${bbLower.toFixed(2)} | 縮量: ${isVolDry ? '✅ 是' : '---'}
+                        </div>
+                    </div>`;
+            }
+            status.innerText = '✅ 數據已即時同步：' + new Date().toLocaleTimeString();
+        } catch (error) {
+            status.innerText = '❌ 同步失敗';
+            grid.innerHTML = `<div class="error-msg">數據解析錯誤，請確認試算表格式是否變動。</div>`;
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
