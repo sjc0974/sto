@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線戰情監控 - 修正昨收版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-top: 6px solid #475569; position: relative; transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-8px); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+
+        .price-main { font-size: 2.8em; font-weight: 800; margin: 5px 0; color: #f43f5e; font-family: 'Courier New', monospace; }
+        /* 昨收價樣式修正 */
+        .prev-close { font-size: 0.9em; color: #94a3b8; margin-bottom: 15px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .prev-val { color: #cbd5e1; font-weight: bold; }
+
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 15px; border-radius: 14px; margin: 10px 0; }
+        .ind-box { background: rgba(15, 23, 42, 0.5); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid #334155; }
+        .ind-val { font-weight: bold; color: #38bdf8; }
+        .val-danger { color: #ef4444 !important; font-weight: bold; }
+        .val-success { color: #10b981 !important; font-weight: bold; }
+
+        .win-badge { position: absolute; top: -12px; right: 15px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #000; padding: 6px 16px; border-radius: 30px; font-size: 0.85em; font-weight: 900; border: 2px solid #fff; }
+        .signal { padding: 14px; border-radius: 12px; font-weight: bold; text-align: center; font-size: 1.2em; margin-top: 15px; }
+        .buy { background: #064e3b; color: #6ee7b7; } 
+        .hold { background: #1e293b; color: #94a3b8; }
+        #update-status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 投資戰情監控中心</h1>
+    <div id="update-status">📡 數據擷取中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+        
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            let rawData = await response.text();
+            const rows = rawData.split(/\r?\n/).filter(line => line.trim() !== "").map(row => row.split(',').map(v => v.replace(/"/g, '').trim()));
+
+            const header = rows[0];
+            const getIdx = (keys) => header.findIndex(h => keys.some(k => h.includes(k)));
+            
+            // 修正：加入 idx.lastClose 索引搜尋 (對應試算表 Q 欄)
+            const idx = {
+                id: 0, name: 1,
+                price: getIdx(["價格", "現價"]),
+                k: getIdx(["K值", "K"]),
+                d: getIdx(["D值", "D"]),
+                bias: getIdx(["乖離"]),
+                trend: getIdx(["連漲", "動能"]),
+                lastClose: 16 // 強制指向 Q 欄 (索引 16)，若標題對齊也可改用搜尋
+            };
+
+            grid.innerHTML = '';
+            
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                const price = parseFloat(col[idx.price]) || 0;
+                const lastClose = parseFloat(col[idx.lastClose]) || 0; // 提取 Q 欄數值
+                const kVal = parseFloat(col[idx.k]) || 0;
+                const biasVal = parseFloat(col[idx.bias]) || 0;
+                const isTrendUp = (col[idx.trend] || "").toUpperCase() === "TRUE";
+
+                // 計算漲跌
+                const priceDiff = (price - lastClose).toFixed(2);
+                const diffColor = priceDiff >= 0 ? "val-danger" : "val-success";
+
+                let theme = col[idx.id].includes('2330') ? 'red' : 'blue';
+                if (col[idx.id].includes('00878') || col[idx.id].includes('00929')) theme = 'green';
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        ${(kVal < 25 && isTrendUp) ? `<div class="win-badge">🔥 強力反彈</div>` : ''}
+                        <div style="font-size:0.8em; color:#94a3b8;">${col[idx.id]}</div>
+                        <div style="font-size:1.6em; font-weight:bold;">${col[idx.name]}</div>
+                        
+                        <div class="price-main">${price.toLocaleString()}</div>
+                        <div class="prev-close">昨收價: <span class="prev-val">${lastClose.toLocaleString()}</span> | 今日漲跌: <span class="${diffColor}">${priceDiff > 0 ? '+' : ''}${priceDiff}</span></div>
+                        
+                        <div class="kd-container
