@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 智能多因子戰情室 - 邏輯優化終極版</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent: #38bdf8;
+            --up-red: #ef4444;
+            --down-green: #10b981;
+            --star-gold: #fbbf24;
+        }
+
+        body { 
+            font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-main); 
+            padding: 20px; 
+            margin: 0; 
+            line-height: 1.5;
+        }
+
+        .header { text-align: center; padding: 10px 0 30px; }
+        .header h1 { color: var(--accent); margin: 0; font-size: 2.2em; text-shadow: 0 0 15px rgba(56, 189, 248, 0.3); }
+        #status { font-size: 0.9em; color: var(--accent); margin-top: 10px; font-weight: bold; }
+
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); 
+            gap: 25px; 
+            max-width: 1400px; 
+            margin: 0 auto; 
+        }
+
+        .card { 
+            background: var(--card-bg); 
+            border-radius: 20px; 
+            padding: 24px; 
+            border-top: 6px solid #475569; 
+            position: relative; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.5); }
+        
+        /* 價格顏色主題 */
+        .card.red-theme { border-top-color: var(--up-red); }
+        .card.blue-theme { border-top-color: #3b82f6; }
+
+        .name-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .symbol { font-size: 0.85em; color: var(--text-dim); font-weight: bold; letter-spacing: 1px; }
+        .name { font-size: 1.6em; font-weight: bold; color: #fff; margin-top: 4px; }
+        
+        .price-row { display: flex; align-items: baseline; gap: 15px; }
+        .price-now { font-size: 2.8em; font-weight: 800; color: var(--up-red); font-family: 'Courier New', monospace; }
+        .change-info { font-size: 1.1em; font-weight: bold; line-height: 1.2; text-align: right; }
+
+        .sub-info { font-size: 0.9em; color: var(--text-dim); border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 15px; }
+
+        /* 九宮格指標 */
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .m-box { background: rgba(15, 23, 42, 0.5); padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #334155; }
+        .m-label { display: block; font-size: 0.75em; color: var(--text-dim); margin-bottom: 4px; }
+        .m-val { font-weight: bold; font-size: 1.05em; color: #fff; }
+        .highlight { color: var(--accent); }
+
+        /* 智能建議區塊 */
+        .advice-box { padding: 16px; border-radius: 14px; margin-top: 15px; font-weight: bold; border-left: 6px solid; transition: all 0.3s; }
+        
+        .adv-hold {
