@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線高勝率戰情室 - 旗艦版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        #update-status { font-size: 0.95em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-top: 6px solid #475569; position: relative; transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-8px); box-shadow: 0 15px 40px rgba(0,0,0,0.5); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        .card.purple { border-top-color: #a855f7; }
+        
+        .win-badge { position: absolute; top: -12px; right: 15px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #000; padding: 6px 16px; border-radius: 30px; font-size: 0.85em; font-weight: 900; box-shadow: 0 4px 15px rgba(251, 191, 36, 0.4); border: 2px solid #fff; z-index: 10; }
+        
+        .symbol { font-size: 0.85em; color: #94a3b8; font-weight: 700; letter-spacing: 1px; }
+        .name { font-size: 1.6em; font-weight: bold; margin: 8px 0; color: #fff; }
+        
+        /* 價格與漲跌資訊區 */
+        .price-row { display: flex; align-items: baseline; gap: 12px; margin-top: 5px; }
+        .price-now { font-size: 2.8em; font-weight: 800; color: #f43f5e; font-family: 'Courier New', monospace; }
+        .change-info { font-size: 1em; font-weight: bold; }
+        .last-close-info { font-size: 0.85em; color: #94a3b8; margin-bottom: 15px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 16px; border-radius: 14px; margin: 15px 0; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; margin-bottom: 5px; }
+        .kd-item strong { font-size: 1.4em; color: #fff; }
+        
+        .extra-indicators { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; font-size: 0.8em; }
+        .ind-box { background: rgba(15, 23, 42, 0.5); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid #334155; }
+        .ind-label { color: #94a3b8; display: block; margin-bottom: 2px; }
+        .ind-val { font-weight: bold; color: #38bdf8; }
+        .val-good { color: #10b981; }
+        .val-bad { color: #ef4444; }
+
+        .strategy-box { background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 10px; font-size: 0.88em; border: 1px solid #334155; margin-top: 15px; }
+        .signal { padding: 14px; border-radius: 12px; font-weight: bold; text-align: center; font-size: 1.2em; margin-top: 15px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        .buy { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; } 
+        .sell { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; }
+        .hold { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+
+        .filter-info { font-size: 0.75em; color: #64748b; margin-top: 12px; text-align: center; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 短線戰情監控中心</h1>
+    <div id="update-status">🚀 數據引擎同步中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            let rawData = await response.text();
+            rawData = rawData.replace(/^\uFEFF/, "").trim(); 
+            
+            const lines = rawData.split(/\r?\n/).filter(l => l.trim() !== "");
+            const rows = lines.map(line => line.split(',').map(c => c.replace(/"/g, '').trim()));
+
+            const header = rows[0];
+            const findCol = (keys) => header.findIndex(h => keys.some(k => h.includes(k)));
+
+            // 修正：包含 Q 欄昨收價的完整索引搜尋
+            const idx = {
+                id: 0,
+                name: 1,
+                price: findCol(["價格", "現價"]),
+                k: findCol(["K值", "K"]),
+                d: findCol(["D值", "D"]),
+                bb: findCol(["布林下軌", "J"]),
+                vol: findCol(["成交量萎縮", "L"]),
+                bias: findCol(["乖離", "M"]),
+                wms: findCol(["威廉", "N"]),
+                macd: findCol(["MACD", "趨勢", "O"]),
+                last: findCol(["昨收"]) // 自動定位 Q 欄
+            };
+
+            grid.innerHTML = '';
+
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                // 安全數值轉換函數 (處理逗號與空值)
+                const parseNum = (val) => {
+                    if (!val) return 0;
+                    let n = parseFloat(val.replace(/,/g, ''));
+                    return isNaN(n) ? 0 : n;
+                };
+
+                const price = parseNum(col[idx.price]);
+                const lastClose = parseNum(col[idx.last]);
+                const kVal = parseNum(col[idx.k]);
+                const dVal = parseNum(col[idx.d]);
+                const bbLower = parseNum(col[idx.bb]);
+                const biasVal = parseNum(col[idx.bias]);
+                const wmsVal = parseNum(col[idx.wms]);
+                const isVolDry = (col[idx.vol] || "").toUpperCase() === "TRUE";
+                const macdTrend = (col[idx.macd] || "").toUpperCase() === "TRUE";
+
+                // 計算漲跌
+                const diff = (price - lastClose).toFixed(2);
+                const percent = lastClose !== 0 ? ((diff / lastClose) * 100).toFixed(2) : "0.00";
+                const changeColor = diff >= 0 ? "#ef4444" : "#10b981";
+
+                // --- 高勝率核心邏輯判定 ---
+                let winScore = 0;
+                if (kVal < 25) {
+                    if (price <= bbLower && bbLower > 0) winScore += 2;
+                    if (isVolDry) winScore += 1;
+                    if (biasVal <= -0.02) winScore += 1;
+                    if (macdTrend) winScore += 1;
+                    if (wmsVal <= -80) winScore += 1;
+                }
+                const isHighWin = winScore >= 3; 
+
+                // 訊號文字與樣式
+                let sigClass = 'hold'; let sigTxt = '⚪ 觀望續抱';
+                if (kVal < 20) { sigClass = 'buy'; sigTxt = '✅ 超跌買入區'; }
+                else if (kVal > 80) { sigClass = 'sell'; sigTxt = '⚠️ 高檔風險區'; }
+
+                let theme = 'blue';
+                if (col[0].includes('2330')) theme = 'red';
+                else if (col[0].includes('00878') || col[0].includes('00929')) theme = 'green';
+                else if (col[0].includes('00981')) theme = 'purple';
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        ${isHighWin ? `<div class="win-badge">🔥 黃金反彈訊號</div>` : ''}
+                        <div class="symbol">TPE:${col[idx.id]}</div>
+                        <div class="name">${col[idx.name]}</div>
+                        
+                        <div class="price-row">
+                            <div class="price-now">${price.toLocaleString()}</div>
+                            <div class="change-info" style="color:${changeColor}">
+                                ${diff > 0 ? '▲' : '▼'}${Math.abs(diff)} (${percent}%)
+                            </div>
+                        </div>
+                        <div class="last-close-info">昨收價: ${lastClose.toLocaleString()}</div>
+
+                        <div class="kd-container">
+                            <div class="kd-item"><span>K值 (動能)</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>D值 (趨勢)</span><strong>${dVal.toFixed(2)}</strong></div>
+                        </div>
+
+                        <div class="extra-indicators">
+                            <div class="ind-box">
+                                <span class="ind-label">5日乖離</span>
+                                <span class="ind-val ${(biasVal <= -0.02) ? 'val-good' : ''}">${(biasVal * 100).toFixed(2)}%</span>
+                            </div>
+                            <div class="ind-box">
+                                <span class="ind-label">威廉指標</span>
+                                <span class="ind-val ${(wmsVal <= -80) ? 'val-good' : ''}">${wmsVal.toFixed(0)}</span>
+                            </div>
+                            <div class="ind-box">
+                                <span class="ind-label">MACD動能</span>
+                                <span class="ind-val ${macdTrend ? 'val-good' : ''}">${macdTrend ? '⤴ 轉強' : '⤵ 走弱'}</span>
+                            </div>
+                            <div class="ind-box">
+                                <span class="ind-label">成交量</span>
+                                <span class="ind-val ${isVolDry ? 'val-good' : ''}">${isVolDry ? '📉 縮量' : '正常'}</span>
+                            </div>
+                        </div>
+
+                        <div class="strategy-box">
+                            <b style="color:#38bdf8;">💡 實戰建議：</b>
+                            <span>${biasVal >= 0.04 ? '短線過熱追高危險' : (isHighWin ? '高勝率反彈區，分批佈局' : (kVal < 20 ? '超跌區間，留意止跌' : '趨勢中性，持股續抱'))}</span>
+                        </div>
+
+                        <div class="signal ${sigClass}">${sigTxt}</div>
+                        
+                        <div class="filter-info">
+                            一週目標 (布林支撐): ${bbLower > 0 ? bbLower.toFixed(2) : '計算中'}
+                        </div>
+                    </div>`;
+            }
+            status.innerText = '✅ 雲端同步完成：' + new Date().toLocaleTimeString();
+        } catch (error) {
+            status.innerText = '❌ 數據同步異常';
+            console.error(error);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
