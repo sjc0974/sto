@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線高勝率戰情室 - 修正版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2em; }
+        #status { font-size: 0.95em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; padding: 10px; background: rgba(56, 189, 248, 0.1); border-radius: 8px; display: inline-block; width: 100%; box-sizing: border-box; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-top: 6px solid #475569; position: relative; }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        
+        .win-badge { position: absolute; top: -12px; right: 15px; background: #f59e0b; color: #000; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 900; border: 2px solid #fff; }
+        .symbol { font-size: 0.8em; color: #94a3b8; }
+        .name { font-size: 1.5em; font-weight: bold; margin: 5px 0; }
+        
+        .price-row { display: flex; align-items: baseline; gap: 10px; margin-top: 5px; }
+        .price-now { font-size: 2.5em; font-weight: 800; color: #f43f5e; font-family: monospace; }
+        .last-close { font-size: 0.9em; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 8px; margin-bottom: 10px; }
+        
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 12px; border-radius: 12px; margin: 10px 0; }
+        .ind-box { background: rgba(15, 23, 42, 0.5); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid #334155; font-size: 0.8em; }
+        .signal { padding: 12px; border-radius: 10px; text-align: center; font-weight: bold; margin-top: 10px; }
+        .buy { background: #064e3b; color: #6ee7b7; }
+        .hold { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 短線戰情監控中心</h1>
+    <div id="status">📡 啟動數據引擎...</div>
+</div>
+
+<div id="stock-grid" class="grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('status');
+
+        try {
+            // 加上時間戳記防止快取
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            if (!response.ok) throw new Error("無法連線至 Google 試算表");
+            
+            const rawData = await response.text();
+            
+            // 修正版 CSV 解析：處理可能存在的引號與換行
+            const rows = rawData.split(/\r?\n/)
+                .filter(line => line.trim() !== "")
+                .map(line => {
+                    // 這段正則表達式可以正確處理 CSV 中的逗號與引號
+                    return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+                });
+
+            const header = rows[0];
+            const findIdx = (txt) => header.findIndex(h => h.includes(txt));
+
+            const idx = {
+                id: 0, name: 1,
+                price: findIdx("價格"), 
+                k: findIdx("K值"),
+                bias: findIdx("乖離"),
+                vol: findIdx("成交量"),
+                macd: findIdx("MACD"),
+                last: findIdx("昨收") // Q 欄
+            };
+
+            let html = '';
+            // 從第二列開始巡航
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[0]) continue;
+
+                // 數值清理
+                const parse = (v) => v ? parseFloat(v.replace(/,/g, '')) || 0 : 0;
+                
+                const price = parse(col[idx.price]);
+                const last = parse(col[idx.last]);
+                const kVal = parse(col[idx.k]);
+                const bias = parse(col[idx.bias]);
+                const isVolDry = (col[idx.vol] || "").toUpperCase().includes("TRUE");
+                const isMacdUp = (col[idx.macd] || "").toUpperCase().includes("TRUE");
+
+                const diff = (price - last).toFixed(2);
+                const percent = last !== 0 ? ((diff / last) * 100).toFixed(2) : "
