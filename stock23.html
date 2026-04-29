@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 戰報 - 全指標校準版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; }
+        .header { text-align: center; padding: 20px 0; }
+        .header h1 { color: #38bdf8; margin: 0; font-size: 2.2em; }
+        #status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border-top: 6px solid #475569; position: relative; }
+        .card.red { border-top-color: #ef4444; }
+        .card.green { border-top-color: #10b981; }
+        .card.blue { border-top-color: #3b82f6; }
+
+        .symbol { font-size: 0.85em; color: #94a3b8; font-weight: bold; }
+        .name { font-size: 1.6em; font-weight: bold; margin: 5px 0; }
+        
+        .price-row { display: flex; align-items: baseline; gap: 12px; }
+        .price-now { font-size: 2.8em; font-weight: 800; color: #f43f5e; font-family: 'Courier New', monospace; }
+        .change-info { font-size: 1.1em; font-weight: bold; }
+        
+        .last-close { font-size: 0.9em; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 8px; margin-bottom: 15px; }
+
+        .kd-box { display: flex; justify-content: space-between; background: #334155; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; }
+        .kd-item strong { font-size: 1.3em; }
+
+        .indicator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .ind-item { background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #334155; }
+        .ind-label { display: block; font-size: 0.75em; color: #94a3b8; margin-bottom: 2px; }
+        .ind-val { font-weight: bold; font-size: 0.95em; }
+        .val-good { color: #10b981; }
+
+        .signal { padding: 14px; border-radius: 12px; text-align: center; font-weight: bold; font-size: 1.2em; }
+        .buy { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; }
+        .hold { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 短線戰情監控中心</h1>
+    <div id="status">📡 數據校準中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function fetchData() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('status');
+
+        try {
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            
+            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
+                return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+            });
+
+            // 根據截圖精確定義索引 (由 0 開始計數)
+            const idx = {
+                id: 0,      // A 欄
+                name: 1,    // B 欄
+                price: 2,   // C 欄 (價格)
+                k: 6,       // G 欄 (K值)
+                d: 7,       // H 欄 (D值)
+                bb: 9,      // J 欄 (布林下軌)
+                vol: 11,    // L 欄 (成交量萎縮)
+                bias: 12,   // M 欄 (乖離率)
+                wms: 13,    // N 欄 (威廉指標) <- 您要找的
+                macd: 14,   // O 欄 (MACD轉強)
+                last: 16    // Q 欄 (昨收價)
+            };
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                const clean = (v) => v ? parseFloat(v.replace(/,/g, '')) || 0 : 0;
+                
+                const price = clean(col[idx.price]);
+                const lastClose = clean(col[idx.last]);
+                const kVal = clean(col[idx.k]);
+                const dVal = clean(col[idx.d]);
+                const wmsVal = clean(col[idx.wms]);
+                const biasVal = clean(col[idx.bias]);
+                const bbLower = clean(col[idx.bb]);
+                const isVolDry = (col[idx.vol] || "").toUpperCase().includes("TRUE");
+                const isMacdUp = (col[idx.macd] || "").toUpperCase().includes("TRUE");
+
+                const diff = (price - lastClose).toFixed(2);
+                const percent = lastClose !== 0 ? ((diff / lastClose) * 100).toFixed(2) : "0.00";
+                const color = parseFloat(diff) >= 0 ? "#ef4444" : "#10b981";
+                
+                let theme = col[idx.id].includes('2330') ? 'red' : (col[idx.id].includes('00878') ? 'green' : 'blue');
+
+                html += `
+                    <div class="card ${theme}">
+                        <div class="symbol">TPE:${col[idx.id]}</div>
+                        <div class="name">${
