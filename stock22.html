@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線戰報 - 最終穩定版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; }
+        .header { text-align: center; padding: 20px 0; }
+        .header h1 { color: #38bdf8; font-size: 2.2em; margin: 0; }
+        #update-status { font-size: 0.9em; color: #38bdf8; text-align: center; margin: 10px 0 20px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; border-top: 6px solid #475569; position: relative; }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+        .win-badge { position: absolute; top: -12px; right: 15px; background: #fbbf24; color: #000; padding: 4px 12px; border-radius: 20px; font-weight: 900; font-size: 0.8em; border: 2px solid #fff; }
+        .symbol { font-size: 0.8em; color: #94a3b8; font-weight: bold; }
+        .name { font-size: 1.6em; font-weight: bold; margin: 5px 0; }
+        .price-now { font-size: 2.8em; font-weight: 800; color: #f43f5e; font-family: monospace; }
+        .change-info { font-weight: bold; font-size: 1.1em; }
+        .last-close { font-size: 0.9em; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 8px; margin-bottom: 15px; }
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
+        .kd-item span { display: block; font-size: 0.75em; color: #cbd5e1; }
+        .kd-item strong { font-size: 1.3em; }
+        .indicator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .ind-box { background: rgba(15, 23, 42, 0.4); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid #334155; font-size: 0.85em; }
+        .signal { padding: 14px; border-radius: 12px; text-align: center; font-weight: bold; font-size: 1.2em; }
+        .buy { background: #064e3b; color: #6ee7b7; }
+        .hold { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 短線戰情監控中心</h1>
+    <div id="update-status">🚀 數據同步啟動中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const rawData = await response.text();
+            
+            // 修正：更保守的 CSV 行解析
+            const lines = rawData.replace(/\r/g, '').split('\n').filter(l => l.trim() !== "");
+            const rows = lines.map(line => {
+                // 處理可能包含逗號的欄位內容
+                return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+            });
+
+            // 強制寫死索引：根據您的 Excel A 到 Q 欄
+            const ID = 0, NAME = 1, PRICE = 2, K = 6, D = 7, BB = 9, VOL = 11, BIAS = 12, MACD = 14, LAST = 16;
+
+            let html = '';
+            // 從第 2 列開始 (索引 1)
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[ID]) continue;
+
+                // 數值清洗函式
+                const n = (v) => v ? parseFloat(String(v).replace(/,/g, '')) || 0 : 0;
+
+                const price = n(col[PRICE]);
+                const last = n(col[LAST]);
+                const kVal = n(col[K]);
+                const dVal = n(col[D]);
+                const bias = n(col[BIAS]);
+                const bbLower = n(col[BB]);
+                const isVolDry = (col[VOL] || "").toUpperCase().includes("TRUE");
+                const isMacdUp = (col[MACD] || "").toUpperCase().includes("TRUE");
+
+                const diff = (price - last).toFixed(2);
+                const percent = last !== 0 ? ((diff / last) * 100).toFixed(2) : "0.00";
+                const color = parseFloat(diff) >= 0 ? "#ef4444" : "#10b981";
+
+                let theme = col[ID].includes('2330') ? 'red' : (col[ID].includes('00878') ? 'green' : 'blue');
+                const isGolden = (kVal < 25 && isMacdUp);
+
+                html += `
+                    <div class="card ${theme}">
+                        ${isGolden ? '<div class="win-badge">🔥 黃金反彈</div>' : ''}
+                        <div class="symbol">${col[ID]}</div>
+                        <div class="name">${col[NAME]}</div>
+                        <div class="price-row">
+                            <div class="price-now">${price.toLocaleString()}</div>
+                            <div class="change-info" style="color:${color}">${parseFloat(diff) >= 0 ? '▲' : '▼'}${Math.abs(diff)} (${percent}%)</div>
+                        </div>
+                        <div class="last-close">昨收價: ${last.toLocaleString()}</div>
+                        <div class="kd-container">
+                            <div class="kd-item"><span>K值</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>5日乖離</span><strong style="color:${bias < 0 ? '#10b981' : '#ef4444'}">${(bias * 100).toFixed(2)}%</strong></div>
+                        </div>
+                        <div class="indicator-grid">
+                            <div class="ind-box" style="color:${isMacdUp ? '#10b981' : '#94a3b8'}">MACD: ${isMacdUp ? '⤴轉強' : '⤵走弱'}</div>
+                            <div class="ind-box" style="color:${isVolDry ? '#38bdf8' : '#94a3b8'}">量能: ${isVolDry ? '📉縮量' : '正常'}</div>
+                        </div>
+                        <div class="signal ${kVal < 25 ? 'buy' : 'hold'}">${kVal < 25 ? '✅ 買入訊號' : '⚪ 觀望續抱'}</div>
+                    </div>
+                `;
+            }
+
+            grid.innerHTML = html;
+            status.innerText = "✅ 更新成功: " + new Date().toLocaleTimeString();
+
+        } catch (err) {
+            status.innerText = "❌ 發生錯誤: " + err.message;
+            console.error(err);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
