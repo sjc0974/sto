@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>ETF 戰情監控 - 穩定修復版</title>
+    <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; text-align: center; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-top: 20px; }
+        .card { background: #1e293b; padding: 20px; border-radius: 15px; border-top: 5px solid #3b82f6; text-align: left; }
+        #update-status { font-weight: bold; padding: 10px; border-radius: 5px; background: rgba(56, 189, 248, 0.1); display: inline-block; }
+        .error-box { background: #7f1d1d; color: #fca5a5; padding: 20px; border-radius: 10px; margin: 20px auto; max-width: 500px; border: 2px solid #ef4444; }
+    </style>
+</head>
+<body>
+
+    <h1>ETF 投資戰情監控中心</h1>
+    <div id="update-status">📡 數據擷取中...</div>
+    <div id="error-display"></div>
+    <div class="grid" id="stock-grid"></div>
+
+<script>
+    // 【重要】請在此處替換成您正確的 CSV 網址
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+        const errorDisplay = document.getElementById('error-display');
+
+        try {
+            // 設定 8 秒超時，防止無限等待
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) throw new Error('Google 伺服器回應錯誤 (可能是網址不正確)');
+            
+            const rawData = await response.text();
+            if (rawData.includes("<!DOCTYPE html>")) throw new Error('抓到的是網頁而非 CSV，請檢查發佈設定是否選為「CSV」。');
+
+            const rows = rawData.split(/\r?\n/).filter(line => line.trim() !== "").map(row => row.split(',').map(v => v.replace(/"/g, '').trim()));
+            const header = rows[0];
+
+            // 自動搜尋索引邏輯
+            const find = (keys) => header.findIndex(h => keys.some(k => h.includes(k)));
+            const idx = {
+                price: find(["價格", "現價"]),
+                k: find(["K值", "K"]),
+                d: find(["D值", "D"]),
+                bias: find(["乖離"]),
+                trend: find(["連漲", "動能"]),
+                lastClose: 16 // Q 欄
+            };
+
+            // 檢查關鍵欄位是否存在
+            if (idx.price === -1 || idx.k === -1) throw new Error('找不到「價格」或「K值」欄位，請檢查 Excel 標題。');
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[0]) continue;
+
+                const price = parseFloat(col[idx.price]) || 0;
+                const lastClose = parseFloat(col[idx.lastClose]) || 0;
+                const kVal = parseFloat(col[idx.k]) || 0;
+                const biasVal = parseFloat(col[idx.bias]) || 0;
+                const isTrendUp = (col[idx.trend] || "").toUpperCase() === "TRUE";
+
+                html += `
+                    <div class="card">
+                        <div style="color:#94a3b8; font-size:0.8em;">${col[0]}</div>
+                        <div style="font-size:1.5em; font-weight:bold;">${col[1]}</div>
+                        <div style="font-size:2.5em; color:#f43f5e; font-family:monospace;">${price}</div>
+                        <div style="font-size:0.9em; color:#94a3b8; margin-bottom:10px;">昨收: ${lastClose}</div>
+                        <hr style="border:0; border-top:1px solid #334155;">
+                        <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                            <span>K: <b>${kVal.toFixed(2)}</b></span>
+                            <span>乖離: <b style="color:${biasVal < 0 ? '#10b981':'#ef4444'}">${(biasVal*100).toFixed(2)}%</b></span>
+                        </div>
+                        <div style="margin-top:15px; padding:10px; background:#0f172a; border-radius:8px; font-size:0.85em;">
+                            💡 建議：${biasVal >= 0.035 ? '⚠️ 過熱追高風險' : (kVal < 20 ? '✅ 進入超跌區' : '📊 持平觀察中')}
+                        </div>
+                    </div>`;
+            }
+
+            grid.innerHTML = html;
+            errorDisplay.innerHTML = '';
+            status.innerText = '✅ 更新成功：' + new Date().toLocaleTimeString();
+
+        } catch (error) {
+            console.error(error);
+            status.innerText = '❌ 更新失敗';
+            errorDisplay.innerHTML = `<div class="error-box"><b>偵測到錯誤：</b><br>${error.message}<br><br><small>建議檢查：1. Excel 是否發佈為 CSV？ 2. 標題是否有「價格」與「K值」？</small></div>`;
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
