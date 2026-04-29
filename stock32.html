@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 智能戰情監控中心</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; }
+        .header { text-align: center; padding-bottom: 20px; }
+        #status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 16px; padding: 20px; border-top: 6px solid #475569; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .card.red { border-top-color: #ef4444; } 
+        .card.blue { border-top-color: #3b82f6; } 
+        
+        .name-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .price-now { font-size: 2.5em; font-weight: 800; color: #f43f5e; font-family: monospace; }
+        .change-info { font-weight: bold; text-align: right; }
+        
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .m-box { background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #334155; transition: all 0.3s ease; }
+        .m-label { display: block; font-size: 0.75em; color: #94a3b8; margin-bottom: 3px; }
+        .m-val { font-weight: bold; font-size: 1em; color: #fff; }
+
+        /* 💡 數值達成指標時的醒目背景顏色 */
+        .bg-alert-green { background: #064e3b !important; border-color: #10b981 !important; } /* 達成買點指標 */
+        .bg-alert-red { background: #450a0a !important; border-color: #ef4444 !important; }   /* 達成賣點指標 */
+
+        .advice-box { padding: 15px; border-radius: 12px; margin-top: 15px; font-weight: bold; border-left: 5px solid; transition: all 0.3s; }
+        .adv-buy { background: #064e3b; color: #6ee7b7; border-color: #10b981; }  
+        .adv-hold { background: #1e293b; color: #94a3b8; border-color: #475569; } 
+        .adv-sell { background: #450a0a; color: #fca5a5; border-color: #ef4444; } 
+        .adv-strong { background: #1e3a8a; color: #bfdbfe; border-color: #3b82f6; } 
+
+        .adv-star { 
+            background: #1e3a24; 
+            color: #fbbf24; 
+            border-color: #fbbf24; 
+            border-left: 8px solid #fbbf24;
+            animation: pulse-gold 2s infinite; 
+        }
+
+        .adv-watch {
+            background: #1e293b;
+            color: #38bdf8;
+            border-color: #38bdf8;
+            border-left: 5px solid #38bdf8;
+            position: relative;
+            overflow: hidden;
+        }
+        .adv-watch::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.1), transparent);
+            animation: scan 2s infinite linear;
+        }
+
+        @keyframes scan {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes pulse-gold {
+            0% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(251, 191, 36, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1 style="color:#38bdf8;">ETF 智能多因子戰情室</h1>
+    <div id="status">📡 指標計算引擎同步中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
+                return line.split(/,(?=(?:(?:[^\"s]*\"){2})*[^\"s]*$)/).map(c => c.replace(/\"/g, '').trim());
+            });
+
+            const idx = { id: 0, name: 1, price: 2, low9: 3, high9: 4, k: 6, d: 7, bb: 9, vol: 11, bias: 12, wms: 13, macd: 14, last: 16 };
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                const n = (v) => {
+                    if (!v || v.trim() === "") return 0;
+                    let clean = String(v).replace(/[^-0-9.]/g, '');
+                    return parseFloat(clean) || 0;
+                };
+                
+                const price = n(col[idx.price]);
+                const last = n(col[idx.last]);
+                const kVal = n(col[idx.k]);
+                const bias = n(col[idx.bias]);
+                const wms = n(col[idx.wms]);
+                const isMacdUp = String(col[idx.macd]).toUpperCase() === "TRUE";
+                const isVolDry = String(col[idx.vol]).toUpperCase() === "TRUE";
+
+                const diff = (price - last);
+                const pct = last !== 0 ? ((diff / last) * 100).toFixed(2) : "0.00";
+
+                let advClass = 'adv-hold';
+                let advTitle = '⚪ 趨勢中性';
+                let advDesc = '目前各項指標平穩，建議持股續抱。';
+
+                // --- 邏輯判定 ---
+                if (kVal < 25) {
+                    if (wms <= -70) {
+                        advClass = 'adv-star';
+                        advTitle = '🌟 強力買入';
+                        advDesc = '符合 (K<25 + 威廉<-70) 條件！' + (isMacdUp ? ' MACD已轉強 ⤴。' : ' 靜待MACD轉強。');
+                    } else {
+                        advClass = 'adv-buy';
+                        advTitle = '✅ 買入訊號';
+                        advDesc = 'K值已達標，威廉指標接近中，關注MACD動向。';
+                    }
+                } else if (kVal < 35 && wms < -50) {
+                    advClass = 'adv-watch';
+                    advTitle = '📡 潛在轉折監控中';
+                    advDesc = `快符合強力買入條件！(K:${kVal.toFixed(0)}/25, Wms:${wms.toFixed(0)}/-70)。`;
+                } else if (kVal > 80) {
+                    if (bias > 0.035) {
+                        advClass = 'adv-sell';
+                        advTitle = '⚠️ 短線過熱';
+                        advDesc = '乖離過大且K值過熱，建議分批獲利了結。';
+                    } else {
+                        advClass = 'adv-strong';
+                        advTitle = '🔥 強勢鈍化';
+                        advDesc = '股價強勢，建議順勢續抱，移動停利。';
+                    }
+                } else if (isVolDry && kVal < 50) {
+                    advTitle = '📉 縮量止穩';
+                    advDesc = '成交量萎縮，股價可能正在打底，關注轉強訊號。';
+                }
+
+                // 💡 計算醒目背景類別
+                const kClass = kVal < 25 ? 'bg-alert-green' : (kVal > 80 ? 'bg-alert-red' : '');
+                const wmsClass = wms <= -70 ? 'bg-alert-green' : '';
+                const macdClass = isMacdUp ? 'bg-alert-green' : '';
+
+                html += `
+                    <div class="card ${col[idx.id].includes('2330') ? 'red' : 'blue'}">
+                        <div class="name-row">
+                            <div>
+                                <div style="font-size:0.8em; color:#94a3b8;">${col[idx.id]}</div>
+                                <div style="font-size:1.4em; font-weight:bold;">${col[idx.name]}</div>
+                            </div>
+                            <div class="change-info" style="color:${diff >= 0 ? '#ef4444' : '#10b981'}">
+                                ${diff.toFixed(2)} (${pct}%)
+                            </div>
+                        </div>
+
+                        <div class="price-now">${price.toLocaleString()}</div>
+
+                        <div class="metrics-grid">
+                            <div class="m-box ${kClass}"><span class="m-label">K / D 值</span><span class="m-val">${kVal.toFixed(1)} / ${n(col[idx.d]).toFixed(1)}</span></div>
+                            <div class="m-box ${wmsClass}"><span class="m-label">威廉指標</span><span class="m-val">${wms.toFixed(0)}</span></div>
+                            <div class="m-box"><span class="m-label">5日乖離</span><span class="m-val">${(bias*100).toFixed(2)}%</span></div>
+                            <div class="m-box ${macdClass}"><span class="m-label">MACD</span><span class="m-val">${isMacdUp ? '⤴ 轉強' : '⤵ 走弱'}</span></div>
+                            <div class="m-box"><span class="m-label">量能</span><span class="m-val">${isVolDry ? '📉 縮量' : '正常'}</span></div>
+                            <div class="m-box"><span class="m-label">昨收</span><span class="m-
