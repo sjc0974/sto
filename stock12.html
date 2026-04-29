@@ -1,0 +1,100 @@
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            let rawData = await response.text();
+            rawData = rawData.replace(/^\uFEFF/, "").trim(); 
+            
+            const rows = rawData.split(/\r?\n/).map(row => {
+                const matched = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                return matched ? matched.map(v => v.replace(/"/g, '').trim()) : row.split(',');
+            });
+
+            const header = rows[0];
+            // 強化的自動尋找邏輯
+            const findCol = (keys) => header.findIndex(h => keys.some(k => h.includes(k)));
+
+            const idx = {
+                price: findCol(["當前價格", "價格", "現價"]),
+                k: findCol(["K值", "K"]),
+                d: findCol(["D值", "D"]),
+                bias: findCol(["乖離"]),
+                trend: findCol(["連漲", "動能"]),
+                // 這裡最關鍵：改用關鍵字「昨收」來自動尋找您的 Q 欄
+                lastClose: findCol(["昨收", "前收"]) 
+            };
+
+            // 除錯機制：如果還是找不到，強制指定為第 16 索引 (Q欄)
+            const finalLastCloseIdx = idx.lastClose !== -1 ? idx.lastClose : 16;
+
+            grid.innerHTML = '';
+
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[0]) continue;
+
+                // 數值清理與提取
+                const getVal = (index) => {
+                    const v = col[index];
+                    return v ? parseFloat(v.replace(/,/g, '')) : 0;
+                };
+
+                const price = getVal(idx.price);
+                const lastClose = getVal(finalLastCloseIdx); // 提取昨收
+                const kVal = getVal(idx.k);
+                const biasVal = getVal(idx.bias);
+                const isTrendUp = (col[idx.trend] || "").toUpperCase() === "TRUE";
+
+                // 計算漲跌幅
+                const diff = (price - lastClose).toFixed(2);
+                const diffPercent = lastClose !== 0 ? ((diff / lastClose) * 100).toFixed(2) : "0.00";
+                const diffColor = diff >= 0 ? "#ef4444" : "#10b981"; // 紅漲綠跌
+
+                // 建議邏輯
+                let strategy = "📊 持平：等待訊號";
+                if (biasVal >= 0.04) strategy = "⚠️ 過熱：建議減碼";
+                else if (biasVal <= -0.025) strategy = "💰 超跌：分批買入";
+
+                let theme = col[0].includes('2330') ? 'red' : (col[0].includes('00878') ? 'green' : 'blue');
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        <div class="symbol">${col[0]}</div>
+                        <div class="name">${col[1]}</div>
+                        <div class="price" style="margin-bottom:0;">${price}</div>
+                        
+                        <div style="font-size:0.9em; margin-bottom:15px; color:#94a3b8;">
+                            昨收: <span style="color:#f8fafc">${lastClose}</span> | 
+                            漲跌: <span style="color:${diffColor}">${diff > 0 ? '+' : ''}${diff} (${diffPercent}%)</span>
+                        </div>
+
+                        <div class="kd-container">
+                            <div class="kd-item"><span>K值</span><strong>${kVal.toFixed(2)}</strong></div>
+                            <div class="kd-item"><span>5日乖離</span><strong style="color:${biasVal < 0 ? '#10b981' : '#ef4444'}">${(biasVal * 100).toFixed(2)}%</strong></div>
+                        </div>
+
+                        <div class="strategy-box" style="background:rgba(15,23,42,0.6); padding:10px; border-radius:10px; font-size:0.85em; border:1px solid #334155;">
+                            <span style="color:#38bdf8; font-weight:bold;">💡 實戰建議：</span>
+                            <span style="color:#e2e8f0;">${strategy}</span>
+                        </div>
+
+                        <div class="signal ${kVal < 25 ? 'buy' : 'hold'}" style="margin-top:15px;">
+                            ${kVal < 25 ? '✅ 買入區' : '⚪ 續抱'}
+                        </div>
+                    </div>`;
+            }
+            status.innerText = '✅ 更新成功：' + new Date().toLocaleTimeString();
+        } catch (error) {
+            status.innerText = '❌ 資料格式錯誤';
+            console.error(error);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
