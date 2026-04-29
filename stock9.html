@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 短線戰情監控 - 完整功能版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; line-height: 1.6; }
+        .header { text-align: center; padding: 20px 0 30px; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 2.2em; text-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-top: 6px solid #475569; position: relative; transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-8px); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        .card.green { border-top-color: #10b981; }
+
+        .price-main { font-size: 2.8em; font-weight: 800; margin: 5px 0; color: #f43f5e; font-family: 'Courier New', monospace; }
+        .prev-close { font-size: 0.9em; color: #94a3b8; margin-bottom: 15px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .prev-val { color: #cbd5e1; font-weight: bold; }
+
+        .kd-container { display: flex; justify-content: space-between; background: #334155; padding: 15px; border-radius: 14px; margin: 10px 0; }
+        .strategy-box { margin-top: 15px; padding: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 10px; font-size: 0.88em; }
+        .strategy-label { color: #38bdf8; font-weight: bold; display: block; margin-bottom: 4px; }
+        
+        .val-danger { color: #ef4444 !important; font-weight: bold; }
+        .val-success { color: #10b981 !important; font-weight: bold; }
+
+        .extra-indicators { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
+        .ind-box { background: rgba(15, 23, 42, 0.5); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid #334155; }
+        .ind-label { color: #94a3b8; font-size: 0.75em; display: block; }
+        .ind-val { font-weight: bold; color: #38bdf8; }
+
+        .win-badge { position: absolute; top: -12px; right: 15px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #000; padding: 6px 16px; border-radius: 30px; font-size: 0.85em; font-weight: 900; border: 2px solid #fff; }
+        .signal { padding: 14px; border-radius: 12px; font-weight: bold; text-align: center; font-size: 1.2em; margin-top: 15px; }
+        .buy { background: #064e3b; color: #6ee7b7; } 
+        .hold { background: #1e293b; color: #94a3b8; }
+        #update-status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ETF 投資實戰監控中心</h1>
+    <div id="update-status">📡 數據擷取中...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        const grid = document.getElementById('stock-grid');
+        const status = document.getElementById('update-status');
+        
+        try {
+            const response = await fetch(`${CSV_URL}&t=${new Date().getTime()}`);
+            let rawData = await response.text();
+            const rows = rawData.split(/\r?\n/).filter(line => line.trim() !== "").map(row => row.split(',').map(v => v.replace(/"/g, '').trim()));
+
+            const header = rows[0];
+            const getIdx = (name) => header.findIndex(h => h.includes(name));
+            
+            // 自動搜尋欄位
+            const idx = {
+                id: 0, name: 1,
+                price: getIdx("價格") !== -1 ? getIdx("價格") : 2,
+                k: getIdx("K值") !== -1 ? getIdx("K值") : 6,
+                d: getIdx("D值") !== -1 ? getIdx("D值") : 7,
+                bias: getIdx("乖離") !== -1 ? getIdx("乖離") : 12,
+                trend: getIdx("連漲") !== -1 ? getIdx("連漲") : 15,
+                lastClose: 16 // 假設 Q 欄為索引 16
+            };
+
+            grid.innerHTML = '';
+            
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                const price = parseFloat(col[idx.price]) || 0;
+                const lastClose = parseFloat(col[idx.lastClose]) || 0;
+                const kVal = parseFloat(col[idx.k]) || 0;
+                const biasVal = parseFloat(col[idx.bias]) || 0;
+                const isTrendUp = (col[idx.trend] || "").toUpperCase() === "TRUE";
+
+                // 漲跌判斷
+                const priceDiff = (price - lastClose).toFixed(2);
+                const diffColor = priceDiff >= 0 ? "val-danger" : "val-success";
+
+                let strategy = "📊 持平：標準續抱區間。";
+                let biasClass = "";
+                if (biasVal >= 0.035) { biasClass = "val-danger"; strategy = "⚠️ 警訊：短線過熱，注意回檔。"; }
+                else if (biasVal <= -0.025) { biasClass = "val-success"; strategy = "💰 機會：超跌反彈訊號。"; }
+
+                let theme = (col[idx.id].includes('2330')) ? 'red' : ((col[idx.id].includes('00878') || col[idx.id].includes('00929')) ? 'green' : 'blue');
+
+                grid.innerHTML += `
+                    <div class="card ${theme}">
+                        ${(kVal < 25 && isTrendUp) ? `<div class="win-badge">🔥 強力反彈</div>` : ''}
+                        <div style="font-size:0.8em; color:#94a3b8;">${col[idx.id]}</div>
+                        <div style="font-size:1.6em; font-weight:bold;">${col[idx.name]}</div>
+                        <div class="price-main">${price}</div>
+                        <div class="prev-close">昨收價: <span class="prev-val">${lastClose}</span> | 今日漲跌: <span class="${diffColor}">${priceDiff > 0 ? '+' : ''}${priceDiff}</span></div>
+                        
+                        <div class="kd-container">
+                            <div style="text-align:center;"><span>K值</span><strong style="display:block; font-size:1.4em;">${kVal.toFixed(2)}</strong></div>
+                            <div style="text-align:center;"><span>D值</span><strong style="display:block; font-size:1.4em;">${parseFloat(col[idx.d]).toFixed(2)}</strong></div>
+                        </div>
+
+                        <div class="extra-indicators">
+                            <div class="ind-box"><span>5日乖離</span><span class="ind-val ${biasClass}">${(biasVal * 100).toFixed(2)}%</span></div>
+                            <div class="ind-box"><span>動能</span><span class="ind-val ${isTrendUp ? 'val-success' : ''}">${isTrendUp ? '📈 轉強' : '---'}</span></div>
+                        </div>
+
+                        <div class="strategy-box">
+                            <span class="strategy-label">💡 實戰策略建議</span>
+                            <span class="strategy-text">${strategy}</span>
+                        </div>
+
+                        <div class="signal ${kVal < 20 ? 'buy' : 'hold'}">${kVal < 20 ? '✅ 超跌買入區' : '⚪ 觀望續抱'}</div>
+                    </div>`;
+            }
+            status.innerText = '✅ 更新成功：' + new Date().toLocaleTimeString();
+        } catch (error) { status.innerText = '❌ 同步失敗'; }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
