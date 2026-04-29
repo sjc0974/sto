@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 投資戰報 - 最終精確版</title>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; margin: 0; }
+        .header { text-align: center; padding-bottom: 20px; }
+        .header h1 { color: #38bdf8; margin: 0; }
+        #status { font-size: 0.9em; color: #38bdf8; text-align: center; margin-bottom: 20px; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 16px; padding: 20px; border-top: 6px solid #475569; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .card.red { border-top-color: #ef4444; }
+        .card.blue { border-top-color: #3b82f6; }
+        
+        .name-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .price-now { font-size: 2.5em; font-weight: 800; color: #f43f5e; font-family: monospace; }
+        .change-info { font-weight: bold; text-align: right; }
+        
+        /* 九宮格指標 */
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .m-box { background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #334155; }
+        .m-label { display: block; font-size: 0.75em; color: #94a3b8; margin-bottom: 3px; }
+        .m-val { font-weight: bold; font-size: 1em; color: #fff; }
+        .val-up { color: #ef4444; }
+        .val-down { color: #10b981; }
+
+        .advice-box { background: #0f172a; padding: 12px; border-radius: 10px; border-left: 4px solid #38bdf8; margin-top: 15px; }
+        .advice-text { font-size: 0.9em; color: #cbd5e1; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>投資戰情監控中心</h1>
+    <div id="status">📡 正在同步雲端數值...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1186750941&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            // 使用 t=${Date.now()} 強制繞過 Google 快取，取得最新值
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            
+            // 嚴格 CSV 分隔解析
+            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
+                return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+            });
+
+            // --- 精確對齊 A 到 Q 欄位索引 ---
+            const idx = {
+                id: 0,      // A 代號
+                name: 1,    // B 名稱
+                price: 2,   // C 當前價格
+                low9: 3,    // D 9日最低
+                high9: 4,   // E 9日最高
+                rsv: 5,     // F RSV
+                k: 6,       // G K值
+                d: 7,       // H D值
+                advice: 8,  // I 操作建議
+                bb: 9,      // J 布林下軌
+                ma5_slope: 10, // K 5MA斜率
+                vol_dry: 11,   // L 成交量萎縮
+                bias5: 12,     // M 5日乖離率
+                wms: 13,       // N 威廉指標
+                macd_up: 14,   // O MACD趨勢
+                streak: 15,    // P 動能連漲
+                last: 16       // Q 昨收價
+            };
+
+            let html = '';
+            // 從第 2 行開始讀取資料
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id]) continue;
+
+                // 清理數值函數
+                const n = (v) => v ? parseFloat(String(v).replace(/,/g, '')) || 0 : 0;
+                
+                const price = n(col[idx.price]);
+                const last = n(col[idx.last]);
+                const diff = (price - last).toFixed(2);
+                const pct = last !== 0 ? ((diff / last) * 100).toFixed(2) : "0.00";
+                
+                const isMacdUp = col[idx.macd_up].toUpperCase() === "TRUE";
+                const isVolDry = col[idx.vol_dry].toUpperCase() === "TRUE";
+
+                html += `
+                    <div class="card ${col[idx.id].includes('2330') ? 'red' : 'blue'}">
+                        <div class="name-row">
+                            <div>
+                                <div style="font-size:0.8em; color:#94a3b8;">${col[idx.id]}</div>
+                                <div style="font-size:1.4em; font-weight:bold;">${col[idx.name]}</div>
+                            </div>
+                            <div class="change-info" style="color:${diff >= 0 ? '#ef4444' : '#10b981'}">
+                                ${diff >= 0 ? '▲' : '▼'}${Math.abs(diff)}<br>${pct}%
+                            </div>
+                        </div>
+
+                        <div class="price-now">${price.toLocaleString()}</div>
+                        <div style="font-size:0.85em; color:#94a3b8; margin-top:-5px;">昨收價: ${last.toLocaleString()}</div>
+
+                        <div class="metrics-grid">
+                            <div class="m-box"><span class="m-label">K / D 值</span><span class="m-val">${n(col[idx.k]).toFixed(1)} / ${n(col[idx.d]).toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">威廉指標</span><span class="m-val">${n(col[idx.wms]).toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">5日乖離</span><span class="m-val ${n(col[idx.bias5]) < 0 ? 'val-down' : 'val-up'}">${(n(col[idx.bias5])*100).toFixed(2)}%</span></div>
+                            
+                            <div class="m-box"><span class="m-label">9日最低</span><span class="m-val">${n(col[idx.low9])}</span></div>
+                            <div class="m-box"><span class="m-label">9日最高</span><span class="m-val">${n(col[idx.high9])}</span></div>
+                            <div class="m-box"><span class="m-label">布林下軌</span><span class="m-val">${n(col[idx.bb]).toFixed(1)}</span></div>
+                            
+                            <div class="m-box"><span class="m-label">MACD趨勢</span><span class="m-val" style="color:${isMacdUp ? '#10b981' : '#94a3b8'}">${isMacdUp ? '⤴ 轉強' : '⤵ 走弱'}</span></div>
+                            <div class="m-box"><span class="m-label">成交量</span><span class="m-val">${isVolDry ? '📉 縮量' : '正常'}</span></div>
+                            <div class="m-box"><span class="m-label">連漲/斜率</span><span class="m-val">${col[idx.streak]} / ${n(col[idx.ma5_slope]).toFixed(0)}</span></div>
+                        </div>
+
+                        <div class="advice-box">
+                            <div class="m-label" style="color:#38bdf8;">🎯 實戰建議</div>
+                            <div class="advice-text">${col[idx.advice]}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            document.getElementById('stock-grid').innerHTML = html;
+            document.getElementById('status').innerText = '✅ 數值已精確同步：' + new Date().toLocaleTimeString();
+        } catch (err) {
+            document.getElementById('status').innerText = '❌ 同步出錯，請檢查雲端連結';
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000); // 每分鐘自動刷新
+</script>
+</body>
+</html>
