@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>ETF 智能多因子戰情室 - 完整數值版</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --up: #f43f5e; --down: #10b981; }
+        body { font-family: sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+        .card { background: var(--card); border-radius: 16px; padding: 20px; border-top: 6px solid #334155; }
+        .price { font-size: 2.8em; font-weight: 800; margin: 5px 0; font-family: monospace; }
+        .metrics { display: grid; grid-template-columns: repeat(3, 2fr); gap: 8px; margin: 15px 0; }
+        .m-box { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #334155; }
+        .m-label { display: block; font-size: 0.75em; color: #94a3b8; margin-bottom: 4px; }
+        .m-val { font-weight: bold; font-size: 0.95em; }
+        .advice { padding: 15px; border-radius: 12px; font-weight: bold; border-left: 8px solid; }
+        .buy { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+        .hold { background: #334155; color: #cbd5e1; border-color: #64748b; }
+        .warn { background: #78350f; color: #fde68a; border-color: #f59e0b; }
+        .danger { background: #450a0a; color: #fca5a5; border-color: #ef4444; }
+    </style>
+</head>
+<body>
+
+<h2 style="text-align:center; color:#38bdf8;">📊 ETF 多因子戰情室</h2>
+<div id="status" style="text-align:center; font-size:0.8em; margin-bottom:20px;">數據同步中...</div>
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function update() {
+        try {
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            const rows = text.split(/\r?\n/).map(r => r.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim()));
+            
+            // 索引對齊 image_b7c7dd.png (A-Q)
+            const idx = { id: 0, name: 1, price: 2, k: 6, d: 7, vol: 11, bias: 12, wms: 13, macd: 14, last: 16 };
+            
+            const n = (v) => {
+                if (!v || v === "#N/A") return 0;
+                let num = parseFloat(v.replace(/[^0-9.-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
+            let html = '';
+            for(let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if(!r[idx.id] || r[idx.id] === "代號") continue;
+
+                const p = n(r[idx.price]);
+                const l = n(r[idx.last]);
+                const kVal = n(r[idx.k]);
+                const dVal = n(r[idx.d]);
+                const b = n(r[idx.bias]) * 100;
+                const w = n(r[idx.wms]);
+                const isVolDry = r[idx.vol]?.toUpperCase() === "TRUE";
+                const isMacdUp = r[idx.macd]?.toUpperCase() === "TRUE";
+                const diff = p - l;
+                const pct = ((diff / l) * 100).toFixed(2);
+
+                // --- 決策引擎 ---
+                let adv = { cls: 'hold', title: '⚖️ 持股續抱', msg: '指標處於中性區間。' };
+                if (b < -1.0 && w < -70) {
+                    adv = { cls: 'buy', title: '💎 底部機會', msg: '負乖離且超跌，縮量代表清洗乾淨。' };
+                } else if (b > 5.0 && (w > 10 || w > -15)) {
+                    adv = { cls: 'danger', title: '🚨 建議減碼', msg: '乖離過大且指標過熱。' };
+                } else if (b > 1.5 && diff > 0 && isVolDry) {
+                    adv = { cls: 'warn', title: '⚠️ 停止追高', msg: '量價背離，追價風險上升。' };
+                }
+
+                html += `
+                    <div class="card" style="border-top-color: ${diff>=0?'var(--up)':'var(--down)'}">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <div><small style="color:#94a3b8">${r[idx.id]}</small><br><strong>${r[idx.name]}</strong></div>
+                            <div style="text-align:right; color:${diff>=0?'var(--up)':'var(--down)'}">
+                                <b>${diff>=0?'▲':'▼'} ${Math.abs(diff).toFixed(2)}</b><br><small>(${pct}%)</small>
+                            </div>
+                        </div>
+                        <div class="price" style="color:${diff>=0?'var(--up)':'var(--down)'}">${p.toFixed(2)}</div>
+                        
+                        <div class="metrics">
+                            <div class="m-box"><span class="m-label">K / D</span><span class="m-val">${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">威廉指標</span><span class="m-val">${w.toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">5日乖離</span><span class="m-val">${b.toFixed(2)}%</span></div>
+                            <div class="m-box"><span class="m-label">MACD</span><span class="m-val">${isMacdUp ? '⤴ 轉強' : '⤵ 走弱'}</span></div>
+                            <div class="m-box"><span class="m-label">量能縮</span><span class="m-val">${isVolDry ? '是' : '否'}</span></div>
+                            <div class="m-box"><span class="m-label">昨日收</span><span class="m-val">${l.toFixed(2)}</span></div>
+                        </div>
+
+                        <div class="advice ${adv.cls}">
+                            <div>${adv.title}</div>
+                            <div style="font-size:0.75em; font-weight:normal; margin-top:4px;">${adv.msg}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            document.getElementById('stock-grid').innerHTML = html;
+            document.getElementById('status').innerText = '✅ 更新時間：' + new Date().toLocaleTimeString();
+        } catch (e) { document.getElementById('status').innerText = '❌ 錯誤：' + e.message; }
+    }
+    update();
+    setInterval(update, 60000);
+</script>
+</body>
+</html>
