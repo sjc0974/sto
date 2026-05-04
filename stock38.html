@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>ETF 智能決策戰情室 - 邏輯修正版</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --up: #f43f5e; --down: #10b981; }
+        body { font-family: sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+        .card { background: var(--card); border-radius: 16px; padding: 20px; border-top: 6px solid #334155; }
+        .price { font-size: 2.5em; font-weight: 800; margin: 10px 0; }
+        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
+        .m-box { background: rgba(0,0,0,0.2); padding: 8px; border-radius: 8px; text-align: center; font-size: 0.85em; }
+        .advice { padding: 15px; border-radius: 12px; font-weight: bold; border-left: 8px solid; }
+        .buy { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+        .hold { background: #1e293b; color: #94a3b8; border-color: #475569; border: 1px solid #475569; }
+        .warn { background: #78350f; color: #fde68a; border-color: #f59e0b; }
+        .danger { background: #450a0a; color: #fca5a5; border-color: #ef4444; }
+    </style>
+</head>
+<body>
+
+<h2 style="text-align:center;">📈 ETF 多因子戰情室 (修正版)</h2>
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function update() {
+        const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+        const text = await resp.text();
+        const rows = text.split('\n').map(r => r.split(','));
+        const idx = { id: 0, name: 1, price: 2, k: 6, bias: 12, wms: 13, vol: 11, macd: 14, last: 16 };
+        
+        let html = '';
+        for(let i=1; i<rows.length; i++) {
+            const r = rows[i];
+            if(!r[idx.id]) continue;
+
+            const p = parseFloat(r[idx.price]);
+            const l = parseFloat(r[idx.last]);
+            const b = parseFloat(r[idx.bias]) * 100;
+            const w = parseFloat(r[idx.wms]);
+            const v = r[idx.vol].trim().toUpperCase() === "TRUE";
+            const m = r[idx.macd].trim().toUpperCase() === "TRUE";
+            const diff = p - l;
+
+            // --- 🤖 修正後的決策邏輯 ---
+            let adv = { cls: 'hold', title: '⚖️ 持股續抱', msg: '指標中性，領息為主。' };
+
+            // 1. 強力進場：負乖離 + 低威廉
+            if (b < -1.0 && w < -70) {
+                adv = { cls: 'buy', title: '💎 底部機會', msg: '股價處於負乖離且超跌，縮量代表浮額清洗乾淨。' };
+            }
+            // 2. 建議減碼：高乖離 + 高威廉
+            else if (b > 5.0 && w > 10) {
+                adv = { cls: 'danger', title: '🚨 建議減碼', msg: '乖離過大且指標過熱，慎防回檔。' };
+            }
+            // 3. 停止追高：正乖離 + 量縮 (只有在股價已經漲高時才觸發)
+            else if (b > 1.5 && diff > 0 && v) {
+                adv = { cls: 'warn', title: '⚠️ 停止追高', msg: '正乖離擴大且量能萎縮，追價風險上升。' };
+            }
+
+            html += `
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between">
+                        <b>${r[idx.id]} ${r[idx.name]}</b>
+                        <span style="color:${diff>=0?'var(--up)':'var(--down)'}">${diff.toFixed(2)}</span>
+                    </div>
+                    <div class="price" style="color:${diff>=0?'var(--up)':'var(--down)'}">${p.toFixed(2)}</div>
+                    <div class="metrics">
+                        <div class="m-box">乖離 ${b.toFixed(2)}%</div>
+                        <div class="m-box">威廉 ${w.toFixed(1)}</div>
+                        <div class="m-box">量縮 ${v?'是':'否'}</div>
+                    </div>
+                    <div class="advice ${adv.cls}">
+                        <div>${adv.title}</div>
+                        <div style="font-size:0.8em; font-weight:normal;">${adv.msg}</div>
+                    </div>
+                </div>
+            `;
+        }
+        document.getElementById('stock-grid').innerHTML = html;
+    }
+    update();
+</script>
+</body>
+</html>
