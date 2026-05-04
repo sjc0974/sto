@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>ETF 智能決策戰情室</title>
+    <style>
+        body { font-family: sans-serif; background: #0f172a; color: #fff; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 20px; border-top: 5px solid #475569; }
+        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .m-box { background: rgba(0,0,0,0.2); padding: 8px; border-radius: 8px; text-align: center; font-size: 0.9em; }
+        .m-label { display: block; color: #94a3b8; font-size: 0.75em; margin-bottom: 4px; }
+        .price { font-size: 2.5em; font-weight: bold; margin: 10px 0; font-family: monospace; }
+        
+        /* 決策樣式 */
+        .advice { padding: 12px; border-radius: 8px; font-weight: bold; text-align: center; border-left: 6px solid; }
+        .buy-strong { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+        .buy-wait { background: #14532d; color: #86efac; border-color: #22c55e; }
+        .hold { background: #334155; color: #cbd5e1; border-color: #64748b; }
+        .warn { background: #78350f; color: #fde68a; border-color: #f59e0b; }
+        .danger { background: #450a0a; color: #fca5a5; border-color: #ef4444; }
+        
+        .txt-up { color: #f43f5e; } /* 紅色代表漲 */
+        .txt-down { color: #10b981; } /* 綠色代表跌 */
+    </style>
+</head>
+<body>
+
+<h2 style="text-align:center; color:#38bdf8;">📈 ETF 自主決策戰情室</h2>
+<div id="status" style="text-align:center; font-size:0.8em; margin-bottom:20px;">數據加載中...</div>
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    // 你的 Google CSV 連結
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            const rows = text.split(/\r?\n/).map(line => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim()));
+
+            // --- 精確索引定義 ---
+            const idx = {
+                id: 0, name: 1, price: 2, k: 6, d: 7, 
+                vol: 11,   // L: 成交量萎縮
+                bias: 12,  // M: 5日乖離率
+                wms: 13,   // N: 威廉指標 (重點修正)
+                macd: 14,  // O: MACD 柱狀
+                last: 16   // Q: 昨收價
+            };
+
+            // 數值解析加強版
+            const n = (v) => {
+                if (!v || v === "#N/A") return 0;
+                let num = parseFloat(v.replace(/[^0-9.-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
+            let html = '';
+            // 從第一列標題後開始
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id] || col[idx.id] === "代號") continue;
+
+                const price = n(col[idx.price]);
+                const last = n(col[idx.last]);
+                const kVal = n(col[idx.k]);
+                const dVal = n(col[idx.d]);
+                const bias = n(col[idx.bias]); // 試算表數值如 0.035 代表 3.5%
+                const wms = n(col[idx.wms]);   // 試算表數值如 -15.4
+                const isMacdUp = col[idx.macd]?.toUpperCase() === "TRUE";
+                const isVolDry = col[idx.vol]?.toUpperCase() === "TRUE";
+
+                const diff = price - last;
+                const pct = ((diff / last) * 100).toFixed(2);
+
+                // --- 🤖 完全自主決策權重系統 ---
+                let buyScore = 0;
+                let sellScore = 0;
+
+                // 買進因子判斷
+                if (kVal < 30) buyScore += 30;         // KD 低位
+                if (wms < -80) buyScore += 30;        // 威廉超跌
+                if (bias < -0.01) buyScore += 20;     // 負乖離 (股價跌深)
+                if (isMacdUp) buyScore += 20;         // MACD 動能轉強
+
+                // 風險因子判斷
+                if (kVal > 75) sellScore += 30;       // KD 過熱
+                if (wms > -15) sellScore += 30;       // 威廉高檔
+                if (bias > 0.04) sellScore += 40;     // 乖離過大 (非常危險)
+
+                let adv = { cls: 'hold', title: '⚖️ 持股續抱', msg: '各項指標處於中性區域，不建議過度操作。' };
+
+                if (buyScore >= 70) {
+                    adv = { cls: 'buy-strong', title: '💎 強力進場', msg: '指標顯示極度超跌後轉強，進場安全邊際高！' };
+                } else if (buyScore >= 40) {
+                    adv = { cls: 'buy-wait', title: '✅ 分批佈局', msg: '趨勢初步回穩，可視回檔分批進場領息。' };
+                } else if (sellScore >= 70) {
+                    adv = { cls: 'danger', title: '🚨 建議賣出', msg: `嚴重過熱！5日乖離(${(bias*100).toFixed(2)}%)已高，慎防閃崩。` };
+                } else if (sellScore >= 40 || (diff > 0 && isVolDry)) {
+                    adv = { cls: 'warn', title: '⚠️ 停止追高', msg: '量價背離或指標進入高位，建議暫緩追價。' };
+                }
+
+                html += `
+                    <div class="card ${diff >= 0 ? 'txt-up' : 'txt-down'}">
+                        <div style="display:flex; justify-content:space-between">
+                            <div><small>${col[idx.id]}</small><br><strong>${col[idx.name]}</strong></div>
+                            <div style="text-align:right">
+                                <div>${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff).toFixed(2)}</div>
+                                <small>(${pct}%)</small>
+                            </div>
+                        </div>
+                        <div class="price">${price.toFixed(2)}</div>
+                        <div class="metrics">
+                            <div class="m-box"><span class="m-label">K / D</span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</div>
+                            <div class="m-box"><span class="m-label">威廉指標</span>${wms.toFixed(1)}</div>
+                            <div class="m-box"><span class="m-label">5日乖離</span>${(bias*100).toFixed(2)}%</div>
+                            <div class="m-box"><span class="m-label">MACD</span>${isMacdUp ? '⤴ 轉強' : '⤵ 走弱'}</div>
+                            <div class="m-box"><span class="m-label">量能縮</span>${isVolDry ? '是' : '正常'}</div>
+                            <div class="m-box"><span class="m-label">昨日收</span>${last.toFixed(2)}</div>
+                        </div>
+                        <div class="advice ${adv.cls}">
+                            <div style="font-size:1.1em">${adv.title}</div>
+                            <div style="font-size:0.75em; font-weight:normal; margin-top:5px;">${adv.msg}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            document.getElementById('stock-grid').innerHTML = html;
+            document.getElementById('status').innerText = '✅ 更新時間：' + new Date().toLocaleTimeString();
+        } catch (e) {
+            document.getElementById('status').innerText = '❌ 讀取失敗：' + e.message;
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
