@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF 智能決策戰情室 - 自主判斷版</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --up-color: #ef4444;   /* 多頭紅 */
+            --down-color: #10b981; /* 空頭綠 */
+            --warn-color: #f59e0b; /* 警告橘 */
+        }
+
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg-color); color: var(--text-main); padding: 20px; margin: 0; }
+        .header { text-align: center; padding: 20px 0; border-bottom: 1px solid #334155; margin-bottom: 30px; }
+        #status { font-size: 0.85em; color: #38bdf8; margin-top: 10px; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
+        
+        /* 卡片設計 */
+        .card { background: var(--card-bg); border-radius: 16px; padding: 20px; position: relative; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        .card.trend-up { border-top: 5px solid var(--up-color); }
+        .card.trend-down { border-top: 5px solid var(--down-color); }
+
+        .name-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .stock-id { font-size: 0.8em; color: var(--text-dim); }
+        .stock-name { font-size: 1.4em; font-weight: bold; }
+        .price-now { font-size: 2.8em; font-weight: 800; font-family: monospace; margin: 10px 0; }
+        
+        /* 指標格子 */
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .m-box { background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #334155; }
+        .m-label { display: block; font-size: 0.7em; color: var(--text-dim); margin-bottom: 3px; }
+        .m-val { font-weight: bold; font-size: 0.95em; }
+
+        /* 決策顯示區 */
+        .advice-box { padding: 15px; border-radius: 12px; font-weight: bold; border-left: 6px solid; transition: all 0.3s ease; }
+        
+        /* 決策等級樣式 */
+        .buy-strong { background: #064e3b; color: #6ee7b7; border-color: #10b981; animation: pulse-green 2s infinite; }
+        .buy-normal { background: #14532d; color: #86efac; border-color: #22c55e; }
+        .wait-neutral { background: #334155; color: #cbd5e1; border-color: #64748b; }
+        .sell-caution { background: #78350f; color: #fde68a; border-color: #f59e0b; }
+        .sell-strong { background: #450a0a; color: #fca5a5; border-color: #ef4444; }
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1 style="margin:0; color:#38bdf8;">ETF 自主 AI 戰情室</h1>
+    <div id="status">📡 正在解析 Google Sheets 原始數據...</div>
+</div>
+
+<div class="grid" id="stock-grid"></div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const resp = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await resp.text();
+            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
+                return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+            });
+
+            // 精確定義索引 (A=0, B=1...)
+            const idx = { id: 0, name: 1, price: 2, k: 6, d: 7, vol: 11, bias: 12, wms: 13, macd: 14, last: 16 };
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const col = rows[i];
+                if (!col[idx.id] || col[idx.id] === "代號") continue;
+
+                const n = (v) => {
+                    if (!v || v === "" || v === "#N/A") return 0;
+                    return parseFloat(v.replace(/[^-0-9.]/g, '')) || 0;
+                };
+
+                const price = n(col[idx.price]);
+                const last = n(col[idx.last]);
+                const kVal = n(col[idx.k]);
+                const dVal = n(col[idx.d]);
+                const bias = n(col[idx.bias]);
+                const wms = n(col[idx.wms]);
+                const isMacdUp = String(col[idx.macd]).toUpperCase() === "TRUE";
+                const isVolDry = String(col[idx.vol]).toUpperCase() === "TRUE";
+
+                const diff = (price - last);
+                const pct = last !== 0 ? ((diff / last) * 100).toFixed(2) : "0.00";
+
+                // --- 🧠 前端自主判斷引擎 (核心邏輯) ---
+                let adv = { class: 'wait-neutral', title: '⚖️ 觀望中性', desc: '目前多空趨勢不明顯，建議等待訊號。' };
+                
+                // 計算多頭分數 (滿分 100)
+                let score = 0;
+                if (kVal < 30) score += 25; // KD 低檔
+                if (wms < -80) score += 25; // 威廉超跌
+                if (bias < -0.01) score += 20; // 負乖離
+                if (isMacdUp) score += 30; // MACD 轉強
+                
+                // 計算過熱分數
+                let hotScore = 0;
+                if (kVal > 75) hotScore += 30;
+                if (wms > -20) hotScore += 30;
+                if (bias > 0.02) hotScore += 40;
+
+                // 決定操作建議
+                if (score >= 75) {
+                    adv = { class: 'buy-strong', title: '💎 強力買入', desc: '多項指標顯示超跌轉強，領息進場之絕佳時機。' };
+                } else if (score >= 50) {
+                    adv = { class: 'buy-normal', title: '✅ 建議進場', desc: '盤勢轉趨穩定，適合分批佈局領息。' };
+                } else if (hotScore >= 80) {
+                    adv = { class: 'sell-strong', title: '🚨 極度過熱', desc: '乖離過大且指標高檔鈍化，隨時有修正風險，請勿追高。' };
+                } else if (hotScore >= 50 || (diff > 0 && isVolDry)) {
+                    adv = { class: 'sell-caution', title: '⚠️ 高檔警戒', desc: '量價背離或漲勢趨緩，建議停止追買，領息者慎防貼息。' };
+                }
+
+                html += `
+                    <div class="card ${diff >= 0 ? 'trend-up' : 'trend-down'}">
+                        <div class="name-row">
+                            <div>
+                                <div class="stock-id">${col[idx.id]}</div>
+                                <div class="stock-name">${col[idx.name]}</div>
+                            </div>
+                            <div style="text-align:right; color:${diff >= 0 ? 'var(--up-color)' : 'var(--down-color)'}">
+                                <div style="font-weight:bold;">${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff).toFixed(2)}</div>
+                                <div style="font-size:0.85em;">(${pct}%)</div>
+                            </div>
+                        </div>
+
+                        <div class="price-now" style="color:${diff >= 0 ? 'var(--up-color)' : 'var(--down-color)'}">${price.toFixed(2)}</div>
+
+                        <div class="metrics-grid">
+                            <div class="m-box"><span class="m-label">K / D 值</span><span class="m-val">${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">威廉指標</span><span class="m-val">${wms.toFixed(1)}</span></div>
+                            <div class="m-box"><span class="m-label">5日乖離</span><span class="m-val">${(bias*100).toFixed(2)}%</span></div>
+                            <div class="m-box"><span class="m-label">MACD動能</span><span class="m-val ${isMacdUp ? 'txt-red' : ''}">${isMacdUp ? '⤴ 轉強' : '⤵ 走弱'}</span></div>
+                            <div class="m-box"><span class="m-label">量能縮量</span><span class="m-val">${isVolDry ? '📉 是' : '正常'}</span></div>
+                            <div class="m-box"><span class="m-label">昨日收盤</span><span class="m-val">${last.toFixed(2)}</span></div>
+                        </div>
+
+                        <div class="advice-box ${adv.class}">
+                            <div style="font-size:1.1em; margin-bottom:5px;">${adv.title}</div>
+                            <div style="font-size:0.85em; font-weight:normal; line-height:1.4;">${adv.desc}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            document.getElementById('stock-grid').innerHTML = html;
+            document.getElementById('status').innerText = '✅ 即時分析中 | 最後更新：' + new Date().toLocaleTimeString();
+        } catch (err) {
+            document.getElementById('status').innerText = '❌ 決策引擎異常，請檢查網路';
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
