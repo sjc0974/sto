@@ -2,9 +2,9 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>短線操盤決策系統 - 靈敏優化版</title>
+    <title>短線操盤決策系統 - 強勢鈍化優化版</title>
     <style>
-        :root { --bg: #0b0f19; --card: #161b2a; --text: #e2e8f0; --up: #ff4d4d; --down: #2ecc71; --blue: #3498db; }
+        :root { --bg: #0b0f19; --card: #161b2a; --text: #e2e8f0; --up: #ff4d4d; --down: #2ecc71; --blue: #3498db; --gold: #f1c40f; }
         body { font-family: 'Segoe UI', 'PingFang TC', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         .header { text-align: center; border-bottom: 2px solid #2d3748; padding-bottom: 20px; margin-bottom: 30px; }
@@ -21,12 +21,16 @@
         .price-main { font-size: 3.2em; font-weight: 800; font-family: 'Consolas', monospace; margin: 10px 0; }
         
         .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
-        .metric-box { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #2d3748; }
+        .metric-box { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #2d3748; transition: all 0.3s; }
         .m-label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; }
         .m-value { font-weight: bold; font-size: 1rem; color: #f8fafc; }
 
+        /* 高檔鈍化強調樣式 */
+        .metric-high-k { border: 2px solid var(--up); background: rgba(255, 77, 77, 0.15); box-shadow: 0 0 10px rgba(255, 77, 77, 0.2); }
+
         .advice-box { margin-top: 20px; padding: 18px; border-radius: 15px; border-left: 6px solid; min-height: 60px; }
         .buy-zone { background: rgba(46, 204, 113, 0.15); color: #58d68d; border-color: #2ecc71; }
+        .strong-zone { background: rgba(241, 196, 15, 0.1); color: var(--gold); border-color: var(--gold); }
         .sell-zone { background: rgba(231, 76, 60, 0.15); color: #ec7063; border-color: #e74c3c; }
         .hold-zone { background: rgba(52, 152, 219, 0.15); color: #5dade2; border-color: #3498db; }
         
@@ -37,8 +41,8 @@
 
 <div class="container">
     <div class="header">
-        <h1>🚀 短線操盤戰情室 (靈敏版)</h1>
-        <p>邏輯校正：威廉門檻放寬至 -70 | 優先級：乖離率 > 威廉 > KD</p>
+        <h1>🚀 短線操盤戰情室 (強勢波段版)</h1>
+        <p>邏輯校正：K > 75 高檔鈍化判定 | 威廉 -70 靈敏觸發</p>
     </div>
 
     <div class="grid" id="stock-display">
@@ -55,7 +59,6 @@
             const data = await response.text();
             const rows = data.split(/\r?\n/).map(row => row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim()));
 
-            // 索引對齊：C(2)價, G(6)K, H(7)D, L(11)量縮, M(12)乖離, N(13)威廉, O(14)MACD, Q(16)昨收
             const idx = { id: 0, name: 1, price: 2, k: 6, d: 7, vol: 11, bias: 12, wms: 13, macd: 14, last: 16 };
             
             const n = (v) => {
@@ -81,20 +84,42 @@
                 const diff = p - l;
                 const isUp = diff >= 0;
 
-                // --- 🚀 靈敏決策引擎 ---
-                let decision = { cls: 'hold-zone', title: '⚖️ 區間整理', msg: '指標處於常態中性區間，建議先觀察。' };
+                // --- 🛡️ 升級決策引擎：納入高檔鈍化邏輯 ---
+                let decision = { cls: 'hold-zone', title: '⚖️ 區間整理', msg: '指標處於中性區間，建議先觀察。' };
 
-                // 1. 低位區判定 (威廉放寬至 -70, 或負乖離超過 -1%)
-                if (w < -70 || b < -1.0) {
-                    decision = { cls: 'buy-zone', title: '💎 底部機會 (威廉-70)', msg: '指標進入超跌/低位區，縮量整理代表賣壓衰竭，勝率提高。' };
+                // 邏輯優先序：1. 高檔鈍化(強勢多頭) > 2. 底部超跌 > 3. 高檔警示 > 4. 動能確認
+
+                // 1. 高檔鈍化判定 (極強趨勢)
+                if (k > 75 && isMacdUp) {
+                    decision = { 
+                        cls: 'strong-zone', 
+                        title: '🔥 強勢高檔鈍化', 
+                        msg: 'K值強勢站穩 75 以上且 MACD 向上，代表極強多頭攻擊段，不宜輕易看空。' 
+                    };
                 }
-                // 2. 過熱警示 (正乖離超過 3.5% 且 威廉過熱)
+                // 2. 底部超跌判定 (威廉 -70 或 負乖離)
+                else if (w < -70 || b < -1.0) {
+                    decision = { 
+                        cls: 'buy-zone', 
+                        title: '💎 底部機會 (威廉-70)', 
+                        msg: '指標進入超跌/低位區，縮量整理代表賣壓衰竭，反彈機率高。' 
+                    };
+                }
+                // 3. 過熱警示 (正乖離偏高 + 威廉過熱，且非鈍化狀態)
                 else if (b > 3.5 && w > -15) {
-                    decision = { cls: 'sell-zone', title: '🚨 高檔警示', msg: '正乖離偏高且威廉過熱，追價意願隨量縮下降，建議分批獲利。' };
+                    decision = { 
+                        cls: 'sell-zone', 
+                        title: '🚨 高檔警示', 
+                        msg: '正乖離過高且威廉過熱，若伴隨量縮上漲需注意追價風險。' 
+                    };
                 }
-                // 3. 多頭攻擊判定 (MACD 轉強且 KD 黃金交叉/向上)
-                else if (isMacdUp && k > d && k > 50) {
-                    decision = { cls: 'buy-zone', title: '🔥 多頭動能轉強', msg: 'MACD 動能向上且 KD 處於強勢區，短線具備攻擊力道。' };
+                // 4. 多頭動能確認 (黃金交叉)
+                else if (isMacdUp && k > d) {
+                    decision = { 
+                        cls: 'buy-zone', 
+                        title: '📈 動能轉強', 
+                        msg: 'MACD 動能與 KD 趨勢同步向上，短線具備攻擊力道。' 
+                    };
                 }
 
                 html += `
@@ -121,9 +146,10 @@
                             <span class="m-label">威廉指標<span class="priority-badge">P2</span></span>
                             <span class="m-value">${w.toFixed(1)}</span>
                         </div>
-                        <div class="metric-box">
-                            <span class="m-label">K / D 值<span class="priority-badge">P3</span></span>
-                            <span class="m-value">${k.toFixed(1)} / ${d.toFixed(1)}</span>
+                        <!-- K/D 區塊根據高檔鈍化動態改變樣式 -->
+                        <div class="metric-box ${k > 75 ? 'metric-high-k' : ''}">
+                            <span class="m-label">K / D 值 ${k > 75 ? '🔥' : '<span class="priority-badge">P3</span>'}</span>
+                            <span class="m-value" style="color: ${k > 75 ? 'var(--up)' : '#f8fafc'}">${k.toFixed(1)} / ${d.toFixed(1)}</span>
                         </div>
                         <div class="metric-box">
                             <span class="m-label">MACD 動能</span>
