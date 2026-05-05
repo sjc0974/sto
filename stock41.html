@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>短線操盤決策系統 - 靈敏優化版</title>
+    <style>
+        :root { --bg: #0b0f19; --card: #161b2a; --text: #e2e8f0; --up: #ff4d4d; --down: #2ecc71; --blue: #3498db; }
+        body { font-family: 'Segoe UI', 'PingFang TC', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; border-bottom: 2px solid #2d3748; padding-bottom: 20px; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 25px; }
+        
+        .card { background: var(--card); border-radius: 20px; padding: 25px; border: 1px solid #2d3748; position: relative; overflow: hidden; transition: transform 0.2s; }
+        .card:hover { transform: scale(1.02); }
+        .card::before { content: ""; position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: var(--blue); }
+        .status-up::before { background: var(--up); }
+        .status-down::before { background: var(--down); }
+
+        .title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .stock-info h2 { margin: 0; font-size: 1.6em; }
+        .price-main { font-size: 3.2em; font-weight: 800; font-family: 'Consolas', monospace; margin: 10px 0; }
+        
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+        .metric-box { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #2d3748; }
+        .m-label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; }
+        .m-value { font-weight: bold; font-size: 1rem; color: #f8fafc; }
+
+        .advice-box { margin-top: 20px; padding: 18px; border-radius: 15px; border-left: 6px solid; min-height: 60px; }
+        .buy-zone { background: rgba(46, 204, 113, 0.15); color: #58d68d; border-color: #2ecc71; }
+        .sell-zone { background: rgba(231, 76, 60, 0.15); color: #ec7063; border-color: #e74c3c; }
+        .hold-zone { background: rgba(52, 152, 219, 0.15); color: #5dade2; border-color: #3498db; }
+        
+        .priority-badge { font-size: 0.7em; background: #2d3748; padding: 2px 6px; border-radius: 4px; margin-left: 4px; color: #38bdf8; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🚀 短線操盤戰情室 (靈敏版)</h1>
+        <p>邏輯校正：威廉門檻放寬至 -70 | 優先級：乖離率 > 威廉 > KD</p>
+    </div>
+
+    <div class="grid" id="stock-display">
+        <!-- JS 動態注入 -->
+    </div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateData() {
+        try {
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const data = await response.text();
+            const rows = data.split(/\r?\n/).map(row => row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim()));
+
+            // 索引對齊：C(2)價, G(6)K, H(7)D, L(11)量縮, M(12)乖離, N(13)威廉, O(14)MACD, Q(16)昨收
+            const idx = { id: 0, name: 1, price: 2, k: 6, d: 7, vol: 11, bias: 12, wms: 13, macd: 14, last: 16 };
+            
+            const n = (v) => {
+                if (!v || v === "#N/A") return 0;
+                let num = parseFloat(v.replace(/[^0-9.-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r[idx.id] || r[idx.id] === "代號") continue;
+
+                const p = n(r[idx.price]);
+                const l = n(r[idx.last]);
+                const b = n(r[idx.bias]) * 100;
+                const w = n(r[idx.wms]);
+                const k = n(r[idx.k]);
+                const d = n(r[idx.d]);
+                const isVolDry = r[idx.vol]?.toUpperCase() === "TRUE";
+                const isMacdUp = r[idx.macd]?.toUpperCase() === "TRUE";
+                
+                const diff = p - l;
+                const isUp = diff >= 0;
+
+                // --- 🚀 靈敏決策引擎 ---
+                let decision = { cls: 'hold-zone', title: '⚖️ 區間整理', msg: '指標處於常態中性區間，建議先觀察。' };
+
+                // 1. 低位區判定 (威廉放寬至 -70, 或負乖離超過 -1%)
+                if (w < -70 || b < -1.0) {
+                    decision = { cls: 'buy-zone', title: '💎 底部機會 (威廉-70)', msg: '指標進入超跌/低位區，縮量整理代表賣壓衰竭，勝率提高。' };
+                }
+                // 2. 過熱警示 (正乖離超過 3.5% 且 威廉過熱)
+                else if (b > 3.5 && w > -15) {
+                    decision = { cls: 'sell-zone', title: '🚨 高檔警示', msg: '正乖離偏高且威廉過熱，追價意願隨量縮下降，建議分批獲利。' };
+                }
+                // 3. 多頭攻擊判定 (MACD 轉強且 KD 黃金交叉/向上)
+                else if (isMacdUp && k > d && k > 50) {
+                    decision = { cls: 'buy-zone', title: '🔥 多頭動能轉強', msg: 'MACD 動能向上且 KD 處於強勢區，短線具備攻擊力道。' };
+                }
+
+                html += `
+                <div class="card ${isUp ? 'status-up' : 'status-down'}">
+                    <div class="title-row">
+                        <div class="stock-info">
+                            <h2>${r[idx.name]} <small style="color:#94a3b8; font-size:0.6em;">${r[idx.id]}</small></h2>
+                        </div>
+                        <div style="color: ${isUp ? 'var(--up)' : 'var(--down)'}; font-weight:bold;">
+                            ${isUp ? '▲' : '▼'} ${Math.abs(diff).toFixed(2)} (${((diff/l)*100).toFixed(2)}%)
+                        </div>
+                    </div>
+                    
+                    <div class="price-main" style="color: ${isUp ? 'var(--up)' : 'var(--down)'}">
+                        ${p.toFixed(2)}
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <span class="m-label">5日乖離<span class="priority-badge">P1</span></span>
+                            <span class="m-value">${b.toFixed(2)}%</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">威廉指標<span class="priority-badge">P2</span></span>
+                            <span class="m-value">${w.toFixed(1)}</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">K / D 值<span class="priority-badge">P3</span></span>
+                            <span class="m-value">${k.toFixed(1)} / ${d.toFixed(1)}</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">MACD 動能</span>
+                            <span class="m-value" style="color:${isMacdUp?'var(--up)':'#94a3b8'}">${isMacdUp?'⤴ 轉強':'⤵ 走弱'}</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">成交量萎縮</span>
+                            <span class="m-value">${isVolDry ? '🚨 是' : '✅ 否'}</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">昨日收盤</span>
+                            <span class="m-value">${l.toFixed(2)}</span>
+                        </div>
+                    </div>
+
+                    <div class="advice-box ${decision.cls}">
+                        <strong>${decision.title}</strong><br>
+                        <small style="font-weight:normal; font-size:0.85em;">${decision.msg}</small>
+                    </div>
+                </div>
+                `;
+            }
+            document.getElementById('stock-display').innerHTML = html;
+        } catch (error) {
+            console.error('更新失敗:', error);
+        }
+    }
+
+    updateData();
+    setInterval(updateData, 60000);
+</script>
+
+</body>
+</html>
