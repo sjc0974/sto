@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>短線操盤決策系統 - 量能階梯版</title>
+    <style>
+        :root { --bg: #0b0f19; --card: #161b2a; --text: #e2e8f0; --up: #ff4d4d; --down: #2ecc71; --blue: #3498db; --gold: #f1c40f; }
+        body { font-family: 'Segoe UI', 'PingFang TC', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; border-bottom: 2px solid #2d3748; padding-bottom: 20px; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 25px; }
+        
+        .card { background: var(--card); border-radius: 20px; padding: 25px; border: 1px solid #2d3748; position: relative; overflow: hidden; transition: transform 0.2s; }
+        .card:hover { transform: scale(1.02); }
+        .card::before { content: ""; position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: var(--blue); }
+        .status-up::before { background: var(--up); }
+        .status-down::before { background: var(--down); }
+
+        .title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .stock-info h2 { margin: 0; font-size: 1.6em; }
+        .price-main { font-size: 3.2em; font-weight: 800; font-family: 'Consolas', monospace; margin: 10px 0; }
+        
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+        .metric-box { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #2d3748; transition: all 0.3s; }
+        .m-label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; }
+        .m-value { font-weight: bold; font-size: 1rem; color: #f8fafc; }
+
+        /* 高檔標示與量能強調 */
+        .metric-high-k { border: 2px solid var(--up); background: rgba(255, 77, 77, 0.15); }
+        .metric-vol-attack { border: 2px solid var(--gold); background: rgba(241, 196, 15, 0.1); }
+
+        .advice-box { margin-top: 20px; padding: 18px; border-radius: 15px; border-left: 6px solid; min-height: 60px; }
+        .buy-zone { background: rgba(46, 204, 113, 0.15); color: #58d68d; border-color: #2ecc71; }
+        .strong-zone { background: rgba(241, 196, 15, 0.1); color: var(--gold); border-color: var(--gold); }
+        .sell-zone { background: rgba(231, 76, 60, 0.15); color: #ec7063; border-color: #e74c3c; }
+        .hold-zone { background: rgba(52, 152, 219, 0.15); color: #5dade2; border-color: #3498db; }
+        
+        .priority-badge { font-size: 0.7em; background: #2d3748; padding: 2px 6px; border-radius: 4px; margin-left: 4px; color: #38bdf8; }
+        .vol-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.8em; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🚀 短線操盤戰情室 (量能攻擊版)</h1>
+        <p>邏輯：K > 75 高檔鈍化 | <b>U 欄連續爆量判定</b> | 威廉 -70 靈敏監控</p>
+    </div>
+
+    <div class="grid" id="stock-display"></div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateData() {
+        try {
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const data = await response.text();
+            const rows = data.split(/\r?\n/).map(row => row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim()));
+
+            // 根據 image_95d2ec.png 重新對應索引
+            // R:17(今日量), S:18(昨日), T:19(前日), U:20(爆量標記)
+            const idx = { id: 0, name: 1, price: 2, k: 6, d: 7, volDry: 11, bias: 12, wms: 13, macd: 14, last: 16, volStatus: 20 };
+            
+            const n = (v) => {
+                if (!v || v === "#N/A") return 0;
+                let num = parseFloat(v.replace(/[^0-9.-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
+            let html = '';
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r[idx.id] || r[idx.id] === "代號") continue;
+
+                const p = n(r[idx.price]);
+                const l = n(r[idx.last]);
+                const b = n(r[idx.bias]) * 100;
+                const w = n(r[idx.wms]);
+                const k = n(r[idx.k]);
+                const d = n(r[idx.d]);
+                const isVolDry = r[idx.volDry]?.toUpperCase() === "TRUE";
+                const isMacdUp = r[idx.macd]?.toUpperCase() === "TRUE";
+                const volStatus = r[idx.volStatus] || "量能萎縮"; // 讀取 U 欄文字
+                
+                const diff = p - l;
+                const isUp = diff >= 0;
+
+                // --- 🛡️ 升級決策引擎：納入「連續爆量」邏輯 ---
+                let decision = { cls: 'hold-zone', title: '⚖️ 區間整理', msg: '指標處於中性區間，成交量無明顯異常。' };
+
+                // 優先序：連續三天爆量+強勢 > 高檔鈍化 > 底部超跌 > 高檔警示
+                
+                if (volStatus.includes("連續三天") && k > 70) {
+                    decision = { 
+                        cls: 'strong-zone', 
+                        title: '🚀 極致攻擊型態', 
+                        msg: '符合「量增階梯」且 KD 向上，此為法人與主力鎖碼最明顯特徵，動能極強。' 
+                    };
+                }
+                else if (k > 75 && isMacdUp) {
+                    decision = { 
+                        cls: 'strong-zone', 
+                        title: '🔥 強勢高檔鈍化', 
+                        msg: 'K值站穩 75 以上且 MACD 向上，屬於強勢多頭，量能若維持則漲勢延續。' 
+                    };
+                }
+                else if (w < -70 || b < -1.0) {
+                    decision = { 
+                        cls: 'buy-zone', 
+                        title: '💎 底部機會', 
+                        msg: '指標進入超跌區，賣壓衰竭，若量能開始回升則是轉折契機。' 
+                    };
+                }
+                else if (b > 3.5 && w > -15 && !volStatus.includes("連續")) {
+                    decision = { 
+                        cls: 'sell-zone', 
+                        title: '🚨 高檔警示', 
+                        msg: '正乖離過高但量能未跟上（量價背離），需嚴防技術性回檔。' 
+                    };
+                }
+                else if (isMacdUp && k > d) {
+                    decision = { 
+                        cls: 'buy-zone', 
+                        title: '📈 動能確認', 
+                        msg: 'MACD 與 KD 同步轉強，短線具有攻擊力道。' 
+                    };
+                }
+
+                const isHotVol = volStatus.includes("連續");
+
+                html += `
+                <div class="card ${isUp ? 'status-up' : 'status-down'}">
+                    <div class="title-row">
+                        <div class="stock-info">
+                            <h2>${r[idx.name]} <small style="color:#94a3b8; font-size:0.6em;">${r[idx.id]}</small></h2>
+                        </div>
+                        <div style="color: ${isUp ? 'var(--up)' : 'var(--down)'}; font-weight:bold;">
+                            ${isUp ? '▲' : '▼'} ${Math.abs(diff).toFixed(2)} (${((diff/l)*100).toFixed(2)}%)
+                        </div>
+                    </div>
+                    
+                    <div class="price-main" style="color: ${isUp ? 'var(--up)' : 'var(--down)'}">
+                        ${p.toFixed(2)}
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <span class="m-label">5日乖離率</span>
+                            <span class="m-value">${b.toFixed(2)}%</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="m-label">威廉指標</span>
+                            <span class="m-value">${w.toFixed(1)}</span>
+                        </div>
+                        <!-- K/D 區塊 -->
+                        <div class="metric-box ${k > 75 ? 'metric-high-k' : ''}">
+                            <span class="m-label">K / D 值 ${k > 75 ? '🔥' : ''}</span>
+                            <span class="m-value" style="color: ${k > 75 ? 'var(--up)' : '#f8fafc'}">${k.toFixed(1)} / ${d.toFixed(1)}</span>
+                        </div>
+                        
+                        <!-- 量能狀態區 (對應 U 欄) -->
+                        <div class="metric-box ${isHotVol ? 'metric-vol-attack' : ''}" style="grid-column: span 2;">
+                            <span class="m-label">成交量脈絡 (U欄判斷)</span>
+                            <span class="m-value" style="color: ${isHotVol ? 'var(--gold)' : '#94a3b8'}">
+                                ${volStatus}
+                            </span>
+                        </div>
+
+                        <div class="metric-box">
+                            <span class="m-label">MACD 動能</span>
+                            <span class="m-value" style="color:${isMacdUp?'var(--up)':'#94a3b8'}">${isMacdUp?'⤴ 轉強':'⤵ 走弱'}</span>
+                        </div>
+                    </div>
+
+                    <div class="advice-box ${decision.cls}">
+                        <strong>${decision.title}</strong><br>
+                        <small style="font-weight:normal; font-size:0.85em;">${decision.msg}</small>
+                    </div>
+                </div>
+                `;
+            }
+            document.getElementById('stock-display').innerHTML = html;
+        } catch (error) {
+            console.error('更新失敗:', error);
+        }
+    }
+
+    updateData();
+    setInterval(updateData, 60000);
+</script>
+
+</body>
+</html>
