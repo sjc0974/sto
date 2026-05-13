@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>共振戰術戰情看板 V3 - 漲跌幅優化版</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 15px; padding: 20px; position: relative; }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(241, 196, 15, 0.3); }
+        
+        .header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .price-area { text-align: right; }
+        .price { font-size: 2.2em; font-weight: 800; font-family: 'Consolas'; line-height: 1; }
+        .change { font-size: 0.9em; font-weight: bold; margin-top: 4px; }
+
+        .tags-row { display: flex; gap: 8px; margin: 12px 0; }
+        .tag { flex: 1; background: #21262d; padding: 6px; border-radius: 6px; font-size: 0.8em; text-align: center; border: 1px solid #30363d; }
+        
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
+        .stats div { display: flex; justify-content: space-between; }
+        .label { color: #8b949e; }
+        
+        .decision { margin-top: 15px; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; }
+        .buy { background: rgba(241, 196, 15, 0.15); color: var(--gold); border: 1px solid var(--gold); }
+        .exit { background: rgba(248, 81, 73, 0.15); color: var(--up); border: 1px solid var(--up); }
+        .watch { background: rgba(88, 166, 255, 0.1); color: var(--blue); border: 1px solid #30363d; }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold); margin-bottom: 30px;">💎 共振戰術大師：即時監控 (含漲跌幅)</h1>
+<div id="dashboard" class="grid">同步試算表數據中...</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await res.text();
+            // 精確處理換行與引號
+            const rows = text.split(/\r?\n/).filter(line => line.trim()).map(r => 
+                r.split(',').map(cell => cell.replace(/^"(.*)"$/, '$1').trim())
+            );
+
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            // 嚴格對準 image_631c21.png 欄位索引
+            const col = {
+                id: 0, name: 1, price: 2, k: 6, d: 7, ma5: 9, 
+                volShrink: 10, bias: 11, wms: 12, macd: 13, 
+                lastClose: 15, volEvent: 19,
+                u: 20, v: 21, w: 22, x: 23, y: 24
+            };
+
+            for(let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if(!r[col.id] || r[col.id] === "代號") continue;
+
+                const price = parseFloat(r[col.price]) || 0;
+                const lastClose = parseFloat(r[col.lastClose]) || 0;
+                const kVal = parseFloat(r[col.k]) || 0;
+                const dVal = parseFloat(r[col.d]) || 0;
+                const wmsVal = parseFloat(r[col.wms]) || 0;
+                const ma5Val = parseFloat(r[col.ma5]) || 0;
+                
+                // 計算漲跌幅
+                const changeVal = price - lastClose;
+                const changePct = lastClose !== 0 ? ((changeVal / lastClose) * 100).toFixed(2) : "0.00";
+                const colorClass = changeVal >= 0 ? 'var(--up)' : 'var(--down)';
+
+                // 健康評分加權
+                let healthScore = 0;
+                if (price > ma5Val) healthScore += 40;
+                if (r[col.macd] === 'TRUE') healthScore += 20;
+                if (kVal > dVal) healthScore += 30;
+                if (wmsVal < -20) healthScore += 10;
+
+                const score = [r[col.u], r[col.v], r[col.w], r[col.x], r[col.y]].filter(s => s?.toUpperCase() === 'YES').length;
+                const isExit = (kVal < dVal && wmsVal > -20) || (price < ma5Val);
+
+                dashboard.innerHTML += `
+                    <div class="card ${score >= 4 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div><b>${r[col.name]}</b><br><small style="color:#8b949e">${r[col.id]}</small></div>
+                            <div class="price-area">
+                                <div class="price" style="color:${colorClass}">${price.toFixed(2)}</div>
+                                <div class="change" style="color:${colorClass}">
+                                    ${changeVal >= 0 ? '▲' : '▼'} ${Math.abs(changeVal).toFixed(2)} (${changePct}%)
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tags-row">
+                            <div class="tag">📊 MACD: ${r[col.macd] === 'TRUE' ? '多頭' : '空頭'}</div>
+                            <div class="tag">📦 量能: ${r[col.volShrink] || '正常'}</div>
+                        </div>
+
+                        <div class="stats">
+                            <div><span class="label">健康評分</span><span style="color:var(--gold)">${healthScore}</span></div>
+                            <div><span class="label">共振得分</span><span>${score}/5</span></div>
+                            <div><span class="label">K / D</span><span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div><span class="label">威廉 %R</span><span>${wmsVal.toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${(parseFloat(r[col.bias])*100).toFixed(2)}%</span></div>
+                            <div><span class="label">量能事件</span><span>${r[col.volEvent] || '無'}</span></div>
+                        </div>
+
+                        ${score >= 4 ? '<div class="decision buy">🎯 共振買點達成</div>' : 
+                          (isExit ? '<div class="decision exit">🚨 趨勢轉弱：建議出場</div>' : '<div class="decision watch">⏳ 趨勢偏多：持股觀察</div>')}
+                    </div>`;
+            }
+        } catch(e) { 
+            console.error(e);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
