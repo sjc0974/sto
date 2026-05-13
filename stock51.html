@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>共振戰術大師：V2.1 精準校準版</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 15px rgba(241, 196, 15, 0.3); }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .price { font-size: 2em; font-weight: bold; font-family: 'Consolas'; }
+        .tags { display: flex; gap: 5px; margin: 10px 0; }
+        .tag { flex: 1; background: #21262d; padding: 5px; border-radius: 4px; font-size: 0.75em; text-align: center; border: 1px solid #30363d; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; }
+        .stats div { display: flex; justify-content: space-between; }
+        .label { color: #8b949e; }
+        .decision { margin-top: 15px; padding: 10px; border-radius: 6px; text-align: center; font-weight: bold; }
+        .buy { background: rgba(241, 196, 15, 0.2); color: var(--gold); border: 1px solid var(--gold); }
+        .exit { background: rgba(248, 81, 73, 0.2); color: var(--up); border: 1px solid var(--up); }
+        .watch { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold);">💎 共振戰術大師：精準即時看板</h1>
+<div id="dashboard" class="grid">正在解析數據...</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv'; 
+
+    async function fetchUpdate() {
+        try {
+            const response = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const data = await response.text();
+            
+            // 強化解析：處理引號、空格與換行
+            const rows = data.split(/\r?\n/).filter(row => row.trim() !== "").map(row => {
+                return row.split(',').map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
+            });
+            
+            const container = document.getElementById('dashboard');
+            container.innerHTML = '';
+
+            // 嚴格對照 image_631c21.png (A=0, B=1...)
+            const COL = {
+                ID: 0, NAME: 1, PRICE: 2, K: 6, D: 7, MA5: 9, 
+                VOL_SHRINK: 10, BIAS: 11, WMS: 12, MACD: 13, 
+                LAST_CLOSE: 15, VOL_EVENT: 19,
+                U: 20, V: 21, W: 22, X: 23, Y: 24
+            };
+
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r[COL.ID] || r[COL.ID] === "代號") continue;
+
+                // 數值強制轉換，避免 NaN 誤判
+                const price = parseFloat(r[COL.PRICE]) || 0;
+                const lastClose = parseFloat(r[COL.LAST_CLOSE]) || 0;
+                const kVal = parseFloat(r[COL.K]) || 0;
+                const dVal = parseFloat(r[COL.D]) || 0;
+                const wmsVal = parseFloat(r[COL.WMS]) || 0;
+                const ma5Val = parseFloat(r[COL.MA5]) || 0;
+                const biasVal = (parseFloat(r[COL.BIAS]) * 100) || 0;
+
+                // 進場分統計 (U-Y)
+                const signals = [r[COL.U], r[COL.V], r[COL.W], r[COL.X], r[COL.Y]];
+                const score = signals.filter(s => s && s.toUpperCase() === 'YES').length;
+                
+                // 出場判定條件 (優化邏輯，防止空值誤判)
+                // 1. KD 死叉 2. 威廉過熱(>-20) 3. 跌破5MA 
+                const isExit = (kVal < dVal && kVal > 0) || (wmsVal > -20 && wmsVal < 0) || (price < ma5Val && price > 0);
+
+                container.innerHTML += `
+                    <div class="card ${score >= 4 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div><b>${r[COL.NAME]}</b><br><small style="color:#8b949e">${r[COL.ID]}</small></div>
+                            <div class="price" style="color:${price >= lastClose ? 'var(--up)' : 'var(--down)'}">
+                                ${price > 0 ? price.toFixed(2) : '---'}
+                            </div>
+                        </div>
+                        
+                        <div class="tags">
+                            <div class="tag">📊 MACD: ${r[COL.MACD] === 'TRUE' ? '📈 多頭' : '📉 空頭'}</div>
+                            <div class="tag">📦 量能: ${r[COL.VOL_SHRINK]}</div>
+                        </div>
+
+                        <div class="stats">
+                            <div><span class="label">K / D</span><span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div><span class="label">威廉 %R</span><span>${wmsVal.toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${biasVal.toFixed(2)}%</span></div>
+                            <div><span class="label">共振得分</span><span>${score}/5</span></div>
+                        </div>
+
+                        ${score >= 4 ? 
+                            '<div class="decision buy">🎯 多頭共振：建議進場</div>' : 
+                            (isExit ? '<div class="decision exit">🚨 警戒：建議出場</div>' : '<div class="decision watch">⏳ 觀察中</div>')
+                        }
+                        
+                        <div style="font-size: 0.7em; color: #444; margin-top: 5px; text-align: right;">
+                            事件: ${r[COL.VOL_EVENT] || '無'}
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (err) {
+            console.error("Fetch Error:", err);
+            document.getElementById('dashboard').innerHTML = "數據讀取失敗，請確認 CSV 是否公開發佈。";
+        }
+    }
+
+    fetchUpdate();
+    setInterval(fetchUpdate, 60000);
+</script>
+</body>
+</html>
