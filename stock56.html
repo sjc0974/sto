@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>共振戰術大師 V5.0 - 實戰決策導航</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-bottom: 40px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 15px rgba(241, 196, 15, 0.2); }
+        
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
+        .price-area { text-align: right; }
+        .price { font-size: 2em; font-weight: 800; font-family: 'Consolas'; line-height: 1; }
+        .change { font-size: 0.85em; font-weight: bold; margin-top: 2px; }
+
+        .tags-row { margin: 10px 0; }
+        .tag { display: inline-block; background: #21262d; padding: 4px 12px; border-radius: 4px; font-size: 0.8em; border: 1px solid #30363d; color: #fff; }
+        
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 15px; font-size: 0.8em; background: rgba(0,0,0,0.15); padding: 10px; border-radius: 8px; }
+        .stats div { display: flex; justify-content: space-between; }
+        .label { color: #8b949e; }
+        
+        .decision { margin-top: 12px; padding: 10px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.9em; border: 1px solid transparent; }
+        .buy { background: rgba(241, 196, 15, 0.2); color: var(--gold); border-color: var(--gold); }
+        .hold { background: rgba(88, 166, 255, 0.15); color: var(--blue); border-color: var(--blue); }
+        .exit { background: rgba(248, 81, 73, 0.2); color: var(--up); border-color: var(--up); }
+        .neutral { background: #21262d; color: #8b949e; border-color: #30363d; }
+
+        /* 新增：下方情境說明區 */
+        .legend { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; margin-top: 30px; }
+        .legend h2 { color: var(--gold); margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .legend-item { padding: 15px; border-radius: 8px; border: 1px solid #30363d; }
+        .legend-title { font-weight: bold; font-size: 1.1em; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold); margin-bottom: 25px;">💎 共振戰術大師：自動化決策看板</h1>
+<div id="dashboard" class="grid">同步試算表數據中...</div>
+
+<div class="legend">
+    <h2>📖 實戰情境決策指南</h2>
+    <div class="legend-grid">
+        <div class="legend-item" style="border-left: 5px solid var(--gold);">
+            <div class="legend-title" style="color: var(--gold);">🎯 多頭共振：建議進場</div>
+            <p style="font-size: 0.9em;">
+                <b>觸發條件：</b>共振得分 ≥ 4 且 健康評分 ≥ 60。<br>
+                <b>分析師觀點：</b>技術指標集體發動，且站穩 5MA 均線。這是勝率最高、爆發力最強的「起漲點」。
+            </p>
+        </div>
+        <div class="legend-item" style="border-left: 5px solid var(--blue);">
+            <div class="legend-title" style="color: var(--blue);">⏳ 趨勢偏多：持股續抱</div>
+            <p style="font-size: 0.9em;">
+                <b>觸發條件：</b>健康評分 ≥ 60，但共振點已過。<br>
+                <b>分析師觀點：</b>雖然今日沒有新的發動訊號，但股價在均線上、MACD 為多頭。適合讓利潤奔跑，不輕易下車。
+            </p>
+        </div>
+        <div class="legend-item" style="border-left: 5px solid var(--up);">
+            <div class="legend-title" style="color: var(--up);">🚨 趨勢轉弱：建議出場</div>
+            <p style="font-size: 0.9em;">
+                <b>觸發條件：</b>健康評分 < 40 或 跌破 5MA。<br>
+                <b>分析師觀點：</b>趨勢護欄已消失，可能進入回檔或轉向空頭。無論損益如何，此時應以保護資金為首要任務。
+            </p>
+        </div>
+        <div class="legend-item" style="border-left: 5px solid #8b949e;">
+            <div class="legend-title" style="color: #8b949e;">📋 盤整階段：空手觀望</div>
+            <p style="font-size: 0.9em;">
+                <b>觸發條件：</b>健康分介於 40-60 之間。<br>
+                <b>分析師觀點：</b>多空拉鋸中，方向不明確。此時入場容易被反覆洗盤，建議等待共振訊號出現。
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await res.text();
+            const rows = text.split(/\r?\n/).filter(line => line.trim()).map(r => 
+                r.split(',').map(cell => cell.replace(/^"(.*)"$/, '$1').trim())
+            );
+
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            const col = {
+                id: 0, name: 1, price: 2, k: 6, d: 7, ma5: 9, 
+                volShrink: 10, bias: 11, wms: 12, macd: 13, 
+                lastClose: 15, volEvent: 19,
+                u: 20, v: 21, w: 22, x: 23, y: 24
+            };
+
+            for(let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if(!r[col.id] || r[col.id] === "代號") continue;
+
+                const price = parseFloat(r[col.price]) || 0;
+                const lastClose = parseFloat(r[col.lastClose]) || 0;
+                const kVal = parseFloat(r[col.k]) || 0;
+                const dVal = parseFloat(r[col.d]) || 0;
+                const wmsVal = parseFloat(r[col.wms]) || 0;
+                const ma5Val = parseFloat(r[col.ma5]) || 0;
+                
+                const changeVal = price - lastClose;
+                const changePct = lastClose !== 0 ? ((changeVal / lastClose) * 100).toFixed(2) : "0.00";
+                const colorClass = changeVal >= 0 ? 'var(--up)' : 'var(--down)';
+
+                // 健康評分加權
+                let healthScore = 0;
+                if (price > ma5Val) healthScore += 40;
+                if (r[col.macd] === 'TRUE') healthScore += 20;
+                if (kVal > dVal) healthScore += 30;
+                if (wmsVal < -20) healthScore += 10;
+
+                const resonanceScore = [r[col.u], r[col.v], r[col.w], r[col.x], r[col.y]].filter(s => s?.toUpperCase() === 'YES').length;
+
+                let decisionHtml = '';
+                if (resonanceScore >= 4 && healthScore >= 60) {
+                    decisionHtml = '<div class="decision buy">🎯 多頭共振：建議進場</div>';
+                } else if (healthScore >= 60) {
+                    decisionHtml = '<div class="decision hold">⏳ 趨勢偏多：持股續抱</div>';
+                } else if (price < ma5Val || healthScore < 40) {
+                    decisionHtml = '<div class="decision exit">🚨 趨勢轉弱：建議出場</div>';
+                } else {
+                    decisionHtml = '<div class="decision neutral">📋 盤整階段：空手觀望</div>';
+                }
+
+                dashboard.innerHTML += `
+                    <div class="card ${resonanceScore >= 4 && healthScore >= 60 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div><b>${r[col.name]}</b><br><small style="color:#8b949e">${r[col.id]}</small></div>
+                            <div class="price-area">
+                                <div class="price" style="color:${colorClass}">${price.toFixed(2)}</div>
+                                <div class="change" style="color:${colorClass}">
+                                    ${changeVal >= 0 ? '▲' : '▼'} ${Math.abs(changeVal).toFixed(2)} (${changePct}%)
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tags-row"><div class="tag">📊 MACD: ${r[col.macd] === 'TRUE' ? '多頭趨勢' : '空頭趨勢'}</div></div>
+                        <div class="stats">
+                            <div><span class="label">健康評分</span><span style="color:var(--gold); font-weight:bold;">${healthScore}</span></div>
+                            <div><span class="label">共振得分</span><span>${resonanceScore}/5</span></div>
+                            <div><span class="label">K / D</span><span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div><span class="label">威廉 %R</span><span>${wmsVal.toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${(parseFloat(r[col.bias])*100).toFixed(2)}%</span></div>
+                            <div><span class="label">量能動態</span><span>${r[col.volEvent] || r[col.volShrink] || '正常'}</span></div>
+                        </div>
+                        ${decisionHtml}
+                    </div>`;
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
