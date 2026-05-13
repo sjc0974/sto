@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>共振戰術大師：進/出場監控看板</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; margin: 0; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 15px; padding: 20px; transition: 0.3s; position: relative; }
+        .card:hover { transform: translateY(-5px); border-color: var(--blue); }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(241, 196, 15, 0.3); }
+
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .stock-title b { font-size: 1.3em; color: #fff; }
+        .price { font-size: 2.2em; font-weight: 800; font-family: 'Consolas', monospace; }
+        
+        .status-tags { display: flex; gap: 8px; margin: 12px 0; }
+        .tag { flex: 1; background: #21262d; padding: 6px; border-radius: 6px; font-size: 0.8em; text-align: center; border: 1px solid #30363d; color: #fff; }
+        
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85em; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; }
+        .stats div { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px; }
+        .label { color: #8b949e; }
+
+        .decision { margin-top: 15px; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 1em; }
+        .buy { background: rgba(241, 196, 15, 0.15); color: var(--gold); border: 1px solid var(--gold); }
+        .exit { background: rgba(248, 81, 73, 0.15); color: var(--up); border: 1px solid var(--up); }
+        .watch { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+
+        .docs { background: #161b22; padding: 30px; border-radius: 15px; border-left: 5px solid var(--gold); margin-top: 20px; }
+        .docs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
+        .docs h3 { color: var(--gold); margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .rule-item { margin-bottom: 12px; font-size: 0.95em; }
+        .rule-tag { display: inline-block; width: 25px; font-weight: bold; color: var(--blue); }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold); margin: 30px 0;">💎 共振戰術大師：即時監控系統</h1>
+
+<div id="dashboard" class="grid">正在連線至 Google 試算表...</div>
+
+<div class="docs">
+    <div class="docs-grid">
+        <div>
+            <h3>🟢 進場共振規則 (U-Y)</h3>
+            <div class="rule-item"><span class="rule-tag">U</span> <b>威廉止跌：</b>從昨日 < -80 勾回今日 > -80。</div>
+            <div class="rule-item"><span class="rule-tag">V</span> <b>信心回溫：</b>K 值昨日 <= 30，今日 > 30。</div>
+            <div class="rule-item"><span class="rule-tag">W</span> <b>波段確認：</b>今日 K > D 且昨日 K <= D (金叉)。</div>
+            <div class="rule-item"><span class="rule-tag">X</span> <b>籌碼洗淨：</b>連三縮後首日補量 (Q>R, R<S, S<T)。</div>
+            <div class="rule-item"><span class="rule-tag">Y</span> <b>成本安全：</b>股價 > 5MA 且 5日乖離絕對值 < 1.5%。</div>
+        </div>
+        <div>
+            <h3>🔴 出場/警戒規則 (Exit)</h3>
+            <div class="rule-item"><b>1. 獲利了結：</b>威廉指標 > -20 進入超買區並反轉向下。</div>
+            <div class="rule-item"><b>2. 動能衰竭：</b>KD 出現高檔死叉 (K < D)。</div>
+            <div class="rule-item"><b>3. 跌破防線：</b>股價收盤跌破 5MA 均線。</div>
+            <div class="rule-item"><b>4. 風險控管：</b>5日正乖離率過大 (預防回檔)。</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 請將下方的 URL 替換為您 Google 試算表「發佈到網路」的 CSV 連結
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv'; 
+
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await res.text();
+            
+            // 使用正則拆分行，並處理 CSV 內容中的逗號
+            const rows = text.split(/\r?\n/).map(row => {
+                return row.split(',').map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
+            });
+
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            // 嚴格對應您的截圖欄位索引 (A=0, B=1...)
+            const idx = {
+                id: 0, name: 1, price: 2, low9: 3, high9: 4, k: 6, d: 7, 
+                ma5: 9, bias: 11, wms: 12, macd: 13, lastClose: 15, 
+                volText: 19, u: 20, v: 21, w: 22, x: 23, y: 24
+            };
+
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r[idx.id]) continue; // 跳過空行
+
+                const price = parseFloat(r[idx.price]) || 0;
+                const lastClose = parseFloat(r[idx.lastClose]) || 0;
+                const kVal = parseFloat(r[idx.k]) || 0;
+                const dVal = parseFloat(r[idx.d]) || 0;
+                const wmsVal = parseFloat(r[idx.wms]) || 0;
+                const biasVal = (parseFloat(r[idx.bias]) * 100) || 0;
+                const ma5Val = parseFloat(r[idx.ma5]) || 0;
+
+                // 進場分統計 (U-Y)
+                const signals = [r[idx.u], r[idx.v], r[idx.w], r[idx.x], r[idx.y]];
+                const score = signals.filter(s => s && s.toUpperCase() === 'YES').length;
+
+                // 出場判定
+                const isExit = wmsVal > -20 || kVal < dVal || price < ma5Val;
+
+                dashboard.innerHTML += `
+                    <div class="card ${score >= 4 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div class="stock-title"><b>${r[idx.name]}</b><br><small style="color:#8b949e">${r[idx.id]}</small></div>
+                            <div class="price" style="color:${price >= lastClose ? 'var(--up)' : 'var(--down)'}">
+                                ${price.toFixed(2)}
+                            </div>
+                        </div>
+                        
+                        <div class="status-tags">
+                            <div class="tag">📊 MACD: ${r[idx.macd] || 'N/A'}</div>
+                            <div class="tag">📦 量能: ${r[idx.volText] || '觀測中'}</div>
+                        </div>
+
+                        <div class="stats">
+                            <div><span class="label">K / D 值</span><span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div><span class="label">威廉 %R</span><span>${wmsVal.toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${biasVal.toFixed(2)}%</span></div>
+                            <div><span class="label">共振得分</span><span>${score}/5</span></div>
+                        </div>
+
+                        ${score >= 4 ? 
+                            '<div class="decision buy">🎯 多頭共振：建議進場</div>' : 
+                            (isExit ? '<div class="decision exit">🚨 警戒：滿足出場條件</div>' : '<div class="decision watch">⏳ 觀察中</div>')
+                        }
+                    </div>
+                `;
+            }
+        } catch (e) {
+            document.getElementById('dashboard').innerText = '連線失敗，請檢查 CSV 連結是否正確或已發佈。';
+            console.error(e);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000); // 每分鐘刷新一次
+</script>
+</body>
+</html>
