@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>共振戰術戰情看板 - 專業分析版</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 15px; padding: 20px; transition: 0.3s; position: relative; }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(241, 196, 15, 0.3); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .price { font-size: 2.2em; font-weight: 800; font-family: 'Consolas'; }
+        
+        /* 新增：MACD 與量能標籤樣式 */
+        .tags-row { display: flex; gap: 8px; margin: 10px 0; }
+        .tag { flex: 1; background: #21262d; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.8em; text-align: center; border: 1px solid #30363d; }
+        .vol-status { border-left: 3px solid var(--blue); }
+        .macd-status { border-left: 3px solid var(--gold); }
+
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
+        .stats div { display: flex; justify-content: space-between; }
+        .label { color: #8b949e; }
+        .decision { margin-top: 15px; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; }
+        .buy { background: rgba(241, 196, 15, 0.15); color: var(--gold); border: 1px solid var(--gold); }
+        .exit { background: rgba(248, 81, 73, 0.15); color: var(--up); border: 1px solid var(--up); }
+        .watch { background: rgba(88, 166, 255, 0.1); color: var(--blue); }
+
+        .docs { background: #161b22; padding: 25px; border-radius: 15px; border-left: 5px solid var(--gold); }
+        .docs h3 { color: var(--gold); margin-top: 0; }
+        .rule-item { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #30363d; }
+        .rule-tag { display: inline-block; width: 30px; font-weight: bold; color: var(--blue); }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold); margin-bottom: 30px;">💎 共振戰術大師：加權分析看板</h1>
+
+<div id="dashboard" class="grid">數據讀取中...</div>
+
+<div class="docs">
+    <h3>📖 專業加權與判斷說明</h3>
+    <div class="rule-item">
+        <b>📊 核心指標顯示：</b><br>
+        1. <b>MACD</b>：顯示柱狀圖正負值趨勢。<br>
+        2. <b>量能狀態</b>：顯示當前成交量相較於前幾日的變化（萎縮/爆量）。<br>
+        3. <b>健康評分</b>：綜合均線、KD位置與MACD的趨勢總分（總分100）。
+    </div>
+    <div class="rule-item">
+        <span class="rule-tag">U-Y</span> <b>共振五大訊號：</b><br>
+        包含止跌、信心、波段金叉、洗盤補量、成本安全。得分 4 以上觸發金框。
+    </div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pub?gid=1124507852&single=true&output=csv';
+
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await res.text();
+            // 修正：更精確的 CSV 拆分邏輯
+            const rows = text.split(/\r?\n/).map(r => r.split(',').map(cell => cell.replace(/"/g, '').trim()));
+
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            // 嚴格對照您的試算表索引
+            const col = {
+                id: 0, name: 1, price: 2, low9: 3, high9: 4, k: 6, d: 7, 
+                ma5: 9, volShrink: 10, bias: 11, wms: 12, macd: 13, 
+                lastClose: 15, volText: 19,
+                u: 20, v: 21, w: 22, x: 23, y: 24
+            };
+
+            for(let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if(!r[col.id] || r[col.id] === "代號") continue;
+
+                const price = parseFloat(r[col.price]) || 0;
+                const kVal = parseFloat(r[col.k]) || 0;
+                const dVal = parseFloat(r[col.d]) || 0;
+                const wmsVal = parseFloat(r[col.wms]) || 0;
+                const ma5Val = parseFloat(r[col.ma5]) || 0;
+                const lastClose = parseFloat(r[col.lastClose]) || 0;
+
+                // --- 專業加權評分系統 ---
+                let healthScore = 0;
+                if (price > ma5Val) healthScore += 40;     // 趨勢：站上均線
+                if (r[col.macd] === 'TRUE') healthScore += 20; // 趨勢：MACD多頭
+                if (kVal > dVal) healthScore += 30;        // 動能：KD金叉
+                if (wmsVal < -20) healthScore += 10;       // 安全：非過熱區
+
+                // 共振得分 (U-Y)
+                const score = [r[col.u], r[col.v], r[col.w], r[col.x], r[col.y]].filter(s => s?.toUpperCase() === 'YES').length;
+
+                // --- 優化後的出場判定 ---
+                // 只有當 (KD死叉且過熱) 或 (跌破5MA) 才會顯示警戒
+                const isExit = (kVal < dVal && wmsVal > -20) || (price < ma5Val && price > 0);
+
+                dashboard.innerHTML += `
+                    <div class="card ${score >= 4 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div><b>${r[col.name]}</b><br><small>${r[col.id]}</small></div>
+                            <div class="price" style="color:${price >= lastClose ? 'var(--up)' : 'var(--down)'}">
+                                ${price.toFixed(2)}
+                            </div>
+                        </div>
+
+                        <div class="tags-row">
+                            <div class="tag macd-status">📊 MACD: ${r[col.macd] === 'TRUE' ? '多頭' : '空頭'}</div>
+                            <div class="tag vol-status">📦 量能: ${r[col.volShrink]}</div>
+                        </div>
+
+                        <div class="stats">
+                            <div><span class="label">健康評分</span><span style="color:var(--gold); font-weight:bold;">${healthScore}</span></div>
+                            <div><span class="label">共振得分</span><span>${score}/5</span></div>
+                            <div><span class="label">K / D</span><span>${kVal.toFixed(1)} / ${dVal.toFixed(1)}</span></div>
+                            <div><span class="label">威廉 %R</span><span>${wmsVal.toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${(parseFloat(r[col.bias])*100).toFixed(2)}%</span></div>
+                            <div><span class="label">量能事件</span><span>${r[col.volText]}</span></div>
+                        </div>
+
+                        ${score >= 4 ? '<div class="decision buy">🎯 共振買點達成</div>' : 
+                          (isExit ? '<div class="decision exit">🚨 趨勢轉弱：建議出場</div>' : '<div class="decision watch">⏳ 趨勢偏多：持股觀察</div>')}
+                    </div>`;
+            }
+        } catch(e) { 
+            console.error(e);
+            document.getElementById('dashboard').innerHTML = "數據讀取失敗，請檢查網路或 CSV 連結。";
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
