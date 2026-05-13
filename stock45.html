@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>共振戰術戰情看板</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --gold: #f1c40f; --up: #f85149; --down: #3fb950; --blue: #58a6ff;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 15px; padding: 20px; transition: 0.3s; }
+        .resonance { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(241, 196, 15, 0.3); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .price { font-size: 2.2em; font-weight: 800; font-family: 'Consolas'; }
+        .vol-tag { background: #21262d; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; text-align: center; margin: 10px 0; border: 1px solid #30363d; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
+        .stats div { display: flex; justify-content: space-between; }
+        .label { color: #8b949e; }
+        .decision { margin-top: 15px; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; }
+        .buy { background: rgba(241, 196, 15, 0.15); color: var(--gold); border: 1px solid var(--gold); }
+        .exit { background: rgba(248, 81, 73, 0.15); color: var(--up); border: 1px solid var(--up); }
+        .docs { background: #161b22; padding: 25px; border-radius: 15px; border-left: 5px solid var(--gold); }
+        .docs h3 { color: var(--gold); margin-top: 0; }
+        .rule-item { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #30363d; }
+        .rule-tag { display: inline-block; width: 30px; font-weight: bold; color: var(--blue); }
+    </style>
+</head>
+<body>
+
+<h1 style="text-align:center; color: var(--gold); margin-bottom: 30px;">💎 共振戰術大師系統</h1>
+
+<div id="dashboard" class="grid">數據讀取中...</div>
+
+<div class="docs">
+    <h3>📖 系統判斷邏輯說明</h3>
+    
+    <div class="rule-item">
+        <span class="rule-tag">U</span> <b>第一訊號：止跌預警</b><br>
+        判斷威廉從昨日(M2)低於-80到今日(M3)高於-80。代表脫離極度超賣區。
+    </div>
+    
+    <div class="rule-item">
+        <span class="rule-tag">V</span> <b>第二訊號：信心回溫</b><br>
+        以K值(G欄)判定：昨日 <= 30 今日 > 30。確認買盤力道從低檔起步。
+    </div>
+    
+    <div class="rule-item">
+        <span class="rule-tag">W</span> <b>第三訊號：波段確認</b><br>
+        判斷今日 K(G3) > D(H3) 且 昨日 K(G2) <= D(H2)。KD金叉確認上攻趨勢。
+    </div>
+    
+    <div class="rule-item">
+        <span class="rule-tag">X</span> <b>第四訊號：籌碼洗淨</b><br>
+        今日量(Q3) > 昨日(R3) 且 昨日 < 前日(S3) 且 前日 < 大前日(T3)。連三縮後補量。
+    </div>
+    
+    <div class="rule-item">
+        <span class="rule-tag">Y</span> <b>第五訊號：成本安全</b><br>
+        股價 > 5MA(J3) 且 5日乖離(L3)絕對值小於 1.5%。確保買點貼近成本區。
+    </div>
+
+    <div class="rule-item" style="border:none; padding-top:10px;">
+        <b style="color: var(--up);">🚨 補充建議：</b><br>
+        1. <b>獲利出場</b>：威廉指標衝破 -20 進入超買區並反轉向下時。<br>
+        2. <b>技術出場</b>：KD 出現高檔死叉（K 跌破 D）時應考慮減碼。<br>
+        3. <b>止損保護</b>：若股價跌破進場前低，或 5 日乖離率不減反增持續破底時。
+    </div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9cWbCYXiLFGXrnY0W58hsYR4Aral3PBL1Dg7FFe2UU_ad-IVhIwOakDwbBiCSfWaDY2l22EdOK_-/pubhtml?gid=1124507852&single=true'; // 請替換您的網址
+
+    async function updateDashboard() {
+        try {
+            const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+            const text = await res.text();
+            const rows = text.split('\n').map(r => r.split(','));
+            
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '';
+
+            const col = {
+                id:0, name:1, price:2, low9:3, high9:4, k:6, d:7, 
+                bias:11, wms:12, lastClose:15, volText:19,
+                u:20, v:21, w:22, x:23, y:24
+            };
+
+            for(let i=1; i<rows.length; i++) {
+                const r = rows[i];
+                if(!r[col.id]) continue;
+
+                const score = [r[col.u], r[col.v], r[col.w], r[col.x], r[col.y]].filter(s => s?.trim().toUpperCase() === 'YES').length;
+                const isExit = parseFloat(r[col.wms]) > -20 || parseFloat(r[col.k]) < parseFloat(r[col.d]);
+
+                dashboard.innerHTML += `
+                    <div class="card ${score >= 4 ? 'resonance' : ''}">
+                        <div class="header">
+                            <div><b>${r[col.name]}</b><br><small>${r[col.id]}</small></div>
+                            <div class="price" style="color:${parseFloat(r[col.price]) >= parseFloat(r[col.lastClose]) ? 'var(--up)' : 'var(--down)'}">
+                                ${parseFloat(r[col.price]).toFixed(2)}
+                            </div>
+                        </div>
+                        <div class="vol-tag">${r[col.volText]}</div>
+                        <div class="stats">
+                            <div><span class="label">9日低/高</span><span>${r[col.low9]}/${r[col.high9]}</span></div>
+                            <div><span class="label">昨收價</span><span>${r[col.lastClose]}</span></div>
+                            <div><span class="label">K / D</span><span>${parseFloat(r[col.k]).toFixed(1)} / ${parseFloat(r[col.d]).toFixed(1)}</span></div>
+                            <div><span class="label">威廉</span><span>${parseFloat(r[col.wms]).toFixed(1)}</span></div>
+                            <div><span class="label">5日乖離</span><span>${(parseFloat(r[col.bias])*100).toFixed(2)}%</span></div>
+                            <div><span class="label">得分</span><span>${score}/5</span></div>
+                        </div>
+                        ${score >= 4 ? '<div class="decision buy">🎯 共振買點達成</div>' : 
+                          (isExit ? '<div class="decision exit">🚨 警戒或出場訊號</div>' : '<div class="decision">觀察中</div>')}
+                    </div>`;
+            }
+        } catch(e) { console.error(e); }
+    }
+    updateDashboard();
+    setInterval(updateDashboard, 60000);
+</script>
+</body>
+</html>
